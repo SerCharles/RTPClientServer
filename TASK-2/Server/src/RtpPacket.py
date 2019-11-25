@@ -51,6 +51,14 @@ class RtpPacket:
 		timestamp = self.header[4] << 24 | self.header[5] << 16 | self.header[6] << 8 | self.header[7]
 		return int(timestamp)
 	
+		
+	def Marker(self):
+		'''Return Marker Type'''
+		marker = ((self.header[1] & 128) >> 7) & 1
+		print(marker)
+		return marker  
+
+
 	def payloadType(self):
 		"""Return payload type."""
 		pt = self.header[1] & 127

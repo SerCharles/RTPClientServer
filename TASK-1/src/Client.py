@@ -1,259 +1,400 @@
 from tkinter import *
-import tkinter.messagebox
+import tkinter.messagebox as MessageBox
 from PIL import Image, ImageTk
 import socket, threading, sys, traceback, os
+import random
+
 
 from RtpPacket import RtpPacket
 from Constants import Constants
 
-CACHE_FILE_NAME = "cache-"
-CACHE_FILE_EXT = ".jpg"
 
 class Client:
-	INIT = 0
-	READY = 1
-	PLAYING = 2
-	state = INIT
 	
-	SETUP = 0
-	PLAY = 1
-	PAUSE = 2
-	TEARDOWN = 3
-	
-	# Initiation..
-	def __init__(self, master, serveraddr, serverport, rtpport, filename):
+	#初始化系列函数
+	def __init__(self, master, TheServerIP, TheServerPort, TheFileName):
+		'''
+        描述：初始化RTP客户端
+        参数：父控件，服务器的IP和端口，文件名
+        返回：无
+		'''
+		#图形界面相关
 		self.master = master
-		self.master.protocol("WM_DELETE_WINDOW", self.handler)
-		self.createWidgets()
-		self.serverAddr = serveraddr
-		self.serverPort = int(serverport)
-		self.rtpPort = int(rtpport)
-		self.fileName = filename
-		self.rtspSeq = 0
-		self.sessionId = 0
-		self.requestSent = -1
-		self.teardownAcked = 0
-		self.connectToServer()
-		self.frameNbr = 0
+		self.master.protocol("WM_DELETE_WINDOW", self.QuitByHandler)
+
+		#网络相关，包括服务器IP，端口信息，和自己的数据连接端口信息，还有数据，控制连接本身
+		self.ClientIP = ""
+		self.ServerIP = TheServerIP
+		self.ServerPort = int(TheServerPort)
+		self.DataPort = self.GenerateRandomPort()
+		self.ControlSocket = None
+		self.DataSocket = None
+
+		#控制相关，包括Session，状态等
+		self.Session = Constants.UNDEFINED_NUMBER
+		self.RequestSent = ""
+		self.Valid = True
+		self.Status = Constants.RTP_TRANSPORT_INIT
+
+		#控制，数据连接顺序码和数据连接的帧
+		self.ControlSequence = 0
+		self.DataSequence = 0
+		self.PictureFrame = 0
+		self.AudioFrame = 0
+
+		#文件相关，包括要播放的视频文件名，缓存文件和接收文件的文件格式和目录名
+		self.FileName = TheFileName
+		self.CacheDirPicture = "CachePicture"
+		self.CacheDirAudio = "CacheAudio"
+		self.CacheFront = "Cache_"
+		self.PictureBack = ".jpg"
+		self.AudioBack = ".wav"
+
+		#初始化操作：初始化控件，初始化目录，连接服务器
+		self.CreateWidgets()
+		self.InitDir()
+		self.ConnectToServer()
 		
-	def createWidgets(self):
-		"""Build GUI."""
+	def InitDir(self):
+		'''
+		描述：初始化缓存目录
+		参数：无
+		返回：无
+        '''		
+		if os.path.exists(self.CacheDirPicture) == False:
+			os.mkdir(self.CacheDirPicture)
+		if os.path.exists(self.CacheDirAudio) == False:
+			os.mkdir(self.CacheDirAudio)
+		return
+
+	def CreateWidgets(self):
+		'''
+		描述：初始化RTP客户端
+        参数：无
+        返回：无
+		'''
 		# Create Setup button
-		self.setup = Button(self.master, width=20, padx=3, pady=3)
-		self.setup["text"] = "Setup"
-		self.setup["command"] = self.setupMovie
-		self.setup.grid(row=1, column=0, padx=2, pady=2)
+		self.Setup = Button(self.master, width = 20, padx = 3, pady = 3)
+		self.Setup["text"] = "Setup"
+		self.Setup["command"] = self.SetupMovie
+		self.Setup.grid(row=1, column=0, padx=2, pady=2)
 		
 		# Create Play button		
-		self.start = Button(self.master, width=20, padx=3, pady=3)
-		self.start["text"] = "Play"
-		self.start["command"] = self.playMovie
-		self.start.grid(row=1, column=1, padx=2, pady=2)
+		self.Start = Button(self.master, width = 20, padx = 3, pady = 3)
+		self.Start["text"] = "Play"
+		self.Start["command"] = self.PlayMovie
+		self.Start.grid(row = 1, column = 1, padx = 2, pady = 2)
 		
 		# Create Pause button			
-		self.pause = Button(self.master, width=20, padx=3, pady=3)
-		self.pause["text"] = "Pause"
-		self.pause["command"] = self.pauseMovie
-		self.pause.grid(row=1, column=2, padx=2, pady=2)
+		self.Pause = Button(self.master, width = 20, padx = 3, pady = 3)
+		self.Pause["text"] = "Pause"
+		self.Pause["command"] = self.PauseMovie
+		self.Pause.grid(row = 1, column = 2, padx = 2, pady = 2)
 		
 		# Create Teardown button
-		self.teardown = Button(self.master, width=20, padx=3, pady=3)
-		self.teardown["text"] = "Teardown"
-		self.teardown["command"] =  self.exitClient
-		self.teardown.grid(row=1, column=3, padx=2, pady=2)
+		self.Teardown = Button(self.master, width = 20, padx = 3, pady = 3)
+		self.Teardown["text"] = "Teardown"
+		self.Teardown["command"] =  self.ExitClient
+		self.Teardown.grid(row = 1, column = 3, padx = 2, pady = 2)
 		
 		# Create a label to display the movie
-		self.label = Label(self.master, height=19)
-		self.label.grid(row=0, column=0, columnspan=4, sticky=W+E+N+S, padx=5, pady=5) 
+		self.Label = Label(self.master, height=19)
+		self.Label.grid(row = 0, column = 0, columnspan = 4, sticky = W + E + N + S, padx = 5, pady = 5) 
 	
-	def setupMovie(self):
-		"""Setup button handler."""
-		if self.state == self.INIT:
-			self.sendRtspRequest(self.SETUP)
-	
-	def exitClient(self):
-		"""Teardown button handler."""
-		self.sendRtspRequest(self.TEARDOWN)		
-		self.master.destroy() # Close the gui window
+	#网络连接相关操作，包括数据端口连接服务器，控制端口开启等
+	def ConnectToServer(self):
+		'''
+		描述：让RTSP控制连接服务器
+		参数：无
+		返回：无
+        '''	
+		self.ControlSocket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 		try:
-			for i in range(self.frameNbr):
-				os.remove(CACHE_FILE_NAME + str(self.sessionId) + str(i + 1) + CACHE_FILE_EXT) # Delete the cache image from video
+			self.ControlSocket.connect((self.ServerIP, self.ServerPort))
+		except:
+			MessageBox.showwarning('Connection Failed', 'Connection to the server at \'%s\' failed.' %self.ServerIP)
+	
+	def OpenDataPort(self):
+		'''
+		描述：开启RTP数据端口，接收服务器数据
+		参数：无
+		返回：无
+        '''	
+		self.DataSocket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+		self.DataSocket.settimeout(0.5)	
+		try:
+			self.DataSocket.bind(("", self.DataPort))
+		except:
+			MessageBox.showwarning('Unable to Bind', 'Unable to bind the data link at PORT = %d' %self.DataPort)
+
+	#绑定按钮相关操作，包括SETUP，PLAY，PAUSE，RESUME，TEARDOWN
+	def SetupMovie(self):
+		'''
+		描述：Setup操作
+        参数：无
+        返回：无
+		'''		
+		if self.Status == Constants.RTP_TRANSPORT_INIT:
+			self.SendControlRequest("SETUP")
+	
+	def ExitClient(self):
+		'''
+		描述：Teardown操作，退出和删除缓存文件
+        参数：无
+        返回：无
+		'''	
+		self.SendControlRequest("TEARDOWN")		
+		self.master.destroy() 
+		try:
+			#os.chdir(self.CacheDirPicture)
+			for i in range(self.PictureFrame):
+				TheCacheName = self.GetPictureCacheFileName(i + 1)
+				os.remove(TheCacheName) 
+			for i in range(self.AudioFrame):
+				TheCacheName = self.GetAudioCacheFileName(i + 1)
+				os.remove(TheCacheName) 
 		except:
 			donothing = True
-	def pauseMovie(self):
-		"""Pause button handler."""
-		if self.state == self.PLAYING:
-			self.sendRtspRequest(self.PAUSE)
-	
-	def playMovie(self):
-		"""Play button handler."""
-		if self.state == self.READY:
-			# Create a new thread to listen for RTP packets
-			threading.Thread(target=self.listenRtp).start()
-			self.playEvent = threading.Event()
-			self.playEvent.clear()
-			self.sendRtspRequest(self.PLAY)
-	
 
-	def listenRtp(self):		
-		"""Listen for RTP packets."""
-		while True:
-			try:
-				data = self.rtpSocket.recv(Constants.DATA_PACKET_SIZE)
-				if data:
-					rtpPacket = RtpPacket()
-					rtpPacket.decode(data)
-					
-					currFrameNbr = rtpPacket.seqNum()
-					print("Current Seq Num: " + str(currFrameNbr))
-										
-					if currFrameNbr > self.frameNbr: # Discard the late packet
-						self.frameNbr = currFrameNbr
-						self.updateMovie(self.writeFrame(rtpPacket.getPayload()))
-			except:
-				# Stop listening upon requesting PAUSE or TEARDOWN
-				if self.playEvent.isSet(): 
-					break
-				
-				# Upon receiving ACK for TEARDOWN request,
-				# close the RTP socket
-				if self.teardownAcked == 1:
-					self.rtpSocket.shutdown(socket.SHUT_RDWR)
-					self.rtpSocket.close()
-					break
-					
-	def writeFrame(self, data):
-		"""Write the received frame to a temp image file. Return the image file."""
-		cachename = CACHE_FILE_NAME + str(self.sessionId) + str(self.frameNbr) + CACHE_FILE_EXT
-		file = open(cachename, "wb")
-		file.write(data)
-		file.close()
-		
-		return cachename
+	def QuitByHandler(self):
+		'''
+		描述：Teardown操作，不过用于绑定其他方式退出，而非按钮退出
+        参数：无
+        返回：无
+		'''	
+		self.PauseMovie()
+		if MessageBox.askokcancel("Quit?", "Are you sure you want to quit?"):
+			self.ExitClient()
+		else: # When the user presses cancel, resume playing.
+			self.PlayMovie()
+
+	def PauseMovie(self):
+		'''
+		描述：Pause操作
+        参数：无
+        返回：无
+		'''	
+		if self.Status == Constants.RTP_TRANSPORT_PLAYING:
+			self.SendControlRequest("PAUSE")
 	
-	def updateMovie(self, imageFile):
-		"""Update the image file as video frame in the GUI."""
-		photo = ImageTk.PhotoImage(Image.open(imageFile))
-		self.label.configure(image = photo, height=288) 
-		self.label.image = photo
-		
-	def connectToServer(self):
-		"""Connect to the Server. Start a new RTSP/TCP session."""
-		self.rtspSocket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-		try:
-			self.rtspSocket.connect((self.serverAddr, self.serverPort))
-		except:
-			tkMessageBox.showwarning('Connection Failed', 'Connection to \'%s\' failed.' %self.serverAddr)
+	def ResumeMovie(self):
+		'''
+		描述：Resume操作
+        参数：无
+        返回：无
+		'''	
+		if self.Status == Constants.RTP_TRANSPORT_READY:
+			self.SendControlRequest("RESUME")
 	
-	def sendRtspRequest(self, requestCode):
-		"""Send RTSP request to the server."""
-		
-		# Setup request
-		if requestCode == self.SETUP and self.state == self.INIT:
-			threading.Thread(target=self.recvRtspReply).start()
-			# Update RTSP sequence number.
-			self.rtspSeq += 1
+	def PlayMovie(self):
+		'''
+		描述：Play操作
+        参数：无
+        返回：无
+		'''	
+		if self.Status == Constants.RTP_TRANSPORT_READY:
+			# Create a new thread to listen for RTP packets
+			threading.Thread(target = self.DataLinkReceive).start()
+			self.PlayEvent = threading.Event()
+			self.PlayEvent.clear()
+			self.SendControlRequest("PLAY")
+	
+	#控制连接相关函数，包括发送请求，处理收到的回复，处理请求等
+	def SendControlRequest(self, TheRequestType):
+		'''
+		描述：向服务器发送控制请求
+        参数：请求类型
+        返回：无
+		'''	
+		if TheRequestType == "SETUP" and self.Status == Constants.RTP_TRANSPORT_INIT:
+			threading.Thread(target = self.ReceiveControlReply).start()
+			self.ControlSequence += 1
 			
-			# Write the RTSP request to be sent.
-			request = 'SETUP ' + self.fileName + ' RTSP/1.0\nCSeq: ' + str(self.rtspSeq) + '\nTransport: RTP/UDP; client_port= ' + str(self.rtpPort)
+			TheRequest = 'SETUP ' + self.FileName + ' RTSP/1.0\n' \
+			+ 'CSeq: ' + str(self.ControlSequence) + \
+			'\nTransport: RTP/UDP; client_port= ' + str(self.DataPort)
 			
-			# Keep track of the sent request.
-			self.requestSent = self.SETUP 
+			self.RequestSent = "SETUP"
 		
-		# Play request
-		elif requestCode == self.PLAY and self.state == self.READY:
-			self.rtspSeq += 1
-			request = 'PLAY ' + self.fileName + ' RTSP/1.0\nCSeq: ' + str(self.rtspSeq) + '\nSession: ' + str(self.sessionId)
-			self.requestSent = self.PLAY
+		elif TheRequestType == "PLAY" and self.Status == Constants.RTP_TRANSPORT_READY:
+			self.ControlSequence += 1
+			TheRequest = 'PLAY ' + self.FileName + ' RTSP/1.0\n' \
+			+ 'CSeq: ' + str(self.ControlSequence) \
+			+ '\nSession: ' + str(self.Session)
+			self.RequestSent = "PLAY"
 		
-		# Pause request
-		elif requestCode == self.PAUSE and self.state == self.PLAYING:
-			self.rtspSeq += 1
-			request = 'PAUSE ' + self.fileName + ' RTSP/1.0\nCSeq: ' + str(self.rtspSeq) + '\nSession: ' + str(self.sessionId)
-			self.requestSent = self.PAUSE
+		elif TheRequestType == "PAUSE" and self.Status == Constants.RTP_TRANSPORT_PLAYING:
+			self.ControlSequence += 1
+			TheRequest = 'PAUSE ' + self.FileName + ' RTSP/1.0\n' \
+			+ 'CSeq: ' + str(self.ControlSequence) \
+			+ '\nSession: ' + str(self.Session)
+			self.RequestSent = "PAUSE"
+
+		elif TheRequestType == "RESUME" and self.Status == Constants.RTP_TRANSPORT_READY:
+			self.ControlSequence += 1
+			TheRequest = 'RESUME ' + self.FileName + ' RTSP/1.0\n' \
+			+ 'CSeq: ' + str(self.ControlSequence) \
+			+ '\nSession: ' + str(self.Session)
+			self.RequestSent = "RESUME"
 			
-		# Teardown request
-		elif requestCode == self.TEARDOWN and not self.state == self.INIT:
-			self.rtspSeq += 1
-			request = 'TEARDOWN ' + self.fileName + ' RTSP/1.0\nCSeq: ' + str(self.rtspSeq) + '\nSession: ' + str(self.sessionId) 
-			self.requestSent = self.TEARDOWN
+		elif TheRequestType == "TEARDOWN" and not self.Status == Constants.RTP_TRANSPORT_INIT:
+			self.ControlSequence += 1
+			TheRequest = 'TEARDOWN ' + self.FileName + ' RTSP/1.0\n' \
+			+ 'CSeq: ' + str(self.ControlSequence) \
+			+ '\nSession: ' + str(self.Session)
+			self.RequestSent = "TEARDOWN"
 		else:
 			return
-		
-		# Send the RTSP request using rtspSocket.
-		self.rtspSocket.send(request.encode())
-		
-		print('\nData sent:\n' + request)
+		self.ControlSocket.send(TheRequest.encode())		
+		print('\nData sent:\n' + TheRequest)
 	
-	def recvRtspReply(self):
-		"""Receive RTSP reply from the server."""
+	def ReceiveControlReply(self):
+		'''
+		描述：接收服务器的控制连接回复
+        参数：无
+        返回：无
+		'''	
 		while True:
-			reply = self.rtspSocket.recv(Constants.CONTROL_SIZE)
-			print(reply.decode("utf-8"))
-			if reply: 
-				self.parseRtspReply(reply.decode("utf-8"))
+			TheReply = self.ControlSocket.recv(Constants.CONTROL_SIZE)
+			print(TheReply.decode("utf-8"))
+			if TheReply: 
+				self.HandleControlReply(TheReply.decode("utf-8"))
 			
 			# Close the RTSP socket upon requesting Teardown
-			if self.requestSent == self.TEARDOWN:
-				self.rtspSocket.shutdown(socket.SHUT_RDWR)
-				self.rtspSocket.close()
+			if self.RequestSent == "TEARDOWN":
+				try:
+					self.ControlSocket.shutdown(socket.SHUT_RDWR)
+					self.ControlSocket.close()
+				except:
+					donothing = True
 				break
 	
-	def parseRtspReply(self, data):
-		"""Parse the RTSP reply from the server."""
-		lines = str(data).split('\n')
-		seqNum = int(lines[1].split(' ')[1])
+	def HandleControlReply(self, TheReply):
+		'''
+		描述：处理服务器的控制连接回复
+        参数：回复内容
+        返回：无
+		'''	
+		Lines = str(TheReply).split('\n')
+		TheSequenceNum = int(Lines[1].split()[1])
 		
 		# Process only if the server reply's sequence number is the same as the request's
-		if seqNum == self.rtspSeq:
-			session = int(lines[2].split(' ')[1])
+		if TheSequenceNum == self.ControlSequence:
+			TheSession = int(Lines[2].split()[1])
 			# New RTSP session ID
-			if self.sessionId == 0:
-				self.sessionId = session
+			if self.Session == Constants.UNDEFINED_NUMBER:
+				self.Session = TheSession
 			
 			# Process only if the session ID is the same
-			if self.sessionId == session:
-				if int(lines[0].split(' ')[1]) == 200: 
-					if self.requestSent == self.SETUP:
-						# Update RTSP state.
-						self.state = self.READY
-						# Open RTP port.
-						self.openRtpPort()
-					elif self.requestSent == self.PLAY:
-						self.state = self.PLAYING
-					elif self.requestSent == self.PAUSE:
-						self.state = self.READY
-						# The play thread exits. A new thread is created on resume.
-						self.playEvent.set()
-					elif self.requestSent == self.TEARDOWN:
-						self.state = self.INIT
-						# Flag the teardownAcked to close the socket.
-						self.teardownAcked = 1 
+			if self.Session == TheSession:
+				if int(Lines[0].split()[1]) == Constants.STATUS_CODE_SUCCESS: 
+					if self.RequestSent == "SETUP":
+						self.Status = Constants.RTP_TRANSPORT_READY
+						self.OpenDataPort()
+					elif self.RequestSent == "PLAY":
+						self.Status = Constants.RTP_TRANSPORT_PLAYING
+					elif self.RequestSent == "PAUSE":
+						self.Status = Constants.RTP_TRANSPORT_READY
+						self.PlayEvent.set()
+					elif self.RequestSent == "RESUME":
+						self.Status = Constants.RTP_TRANSPORT_PLAYING
+					elif self.RequestSent == "TEARDOWN":
+						self.Status = Constants.RTP_TRANSPORT_INIT
+						self.Valid = False
+
+	#数据连接RTP部分：接收数据，更新帧，更新显示
+	def DataLinkReceive(self):		
+		'''
+		描述：处理服务器的控制连接回复
+        参数：回复内容
+        返回：无
+		'''	
+		while True:
+			try:
+				TheData = self.DataSocket.recv(Constants.DATA_PACKET_SIZE)
+				if TheData:
+					ThePacket = RtpPacket()
+					ThePacket.decode(TheData)
+					
+					CurrentSequenceNum = ThePacket.seqNum()
+					CurrentMarker = ThePacket.Marker()
+					if CurrentMarker == 0:
+						self.PictureFrame = self.PictureFrame + 1
+						print("New Frame")
+					print("Current Seq Num: " + str(CurrentSequenceNum))
+										
+					if CurrentSequenceNum > self.DataSequence: # Discard the late packet
+						self.DataSequence = CurrentSequenceNum
+						self.WritePictureFrame(ThePacket.getPayload())
+						if CurrentMarker == 0:
+							TheCacheFileName = self.GetPictureCacheFileName(self.PictureFrame - 1)
+							self.UpdateMovie(TheCacheFileName)
+			except:
+				# Stop listening upon requesting PAUSE or TEARDOWN
+				if self.PlayEvent.isSet(): 
+					break
+				
+				#处理teardown事件
+				if self.Valid == False:
+					try:
+						self.DataSocket.shutdown(socket.SHUT_RDWR)
+						self.DataSocket.close()
+					except:
+						donothing = True
+					break
+					
+	def WritePictureFrame(self, TheData):
+		'''
+		描述：写入图片帧
+        参数：数据内容
+        返回：无
+		'''	
+		TheCacheName = self.GetPictureCacheFileName(self.PictureFrame)
+		File = open(TheCacheName, "ab")
+		File.write(TheData)
+		File.close()
 	
-	def openRtpPort(self):
-		"""Open RTP socket binded to a specified port."""
-		# Create a new datagram socket to receive RTP packets from the server
-		self.rtpSocket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-
-		# Set the timeout value of the socket to 0.5sec
-		self.rtpSocket.settimeout(0.5)
+	def UpdateMovie(self, ImageFile):
+		'''
+		描述：更新显示
+        参数：文件名
+        返回：无
+		'''	
+		ThePhoto = ImageTk.PhotoImage(Image.open(ImageFile))
+		self.Label.configure(image = ThePhoto, height=288) 
+		self.Label.image = ThePhoto
 		
-		try:
-			# Bind the socket to the address using the RTP port given by the client user
-			self.rtpSocket.bind(("", self.rtpPort))
-		except:
-			tkMessageBox.showwarning('Unable to Bind', 'Unable to bind PORT=%d' %self.rtpPort)
+	#基本操作函数，比如随机生成端口，生成完整文件名
+	def GenerateRandomPort(self):	
+		'''
+		描述：生成随机的自身数据端口
+		参数：无
+		返回：一个随机数port
+        '''
+		ThePort = random.randint(10001, 65535)
+		return ThePort
 
-	def handler(self):
-		"""Handler on explicitly closing the GUI window."""
-		self.pauseMovie()
-		if tkMessageBox.askokcancel("Quit?", "Are you sure you want to quit?"):
-			self.exitClient()
-		else: # When the user presses cancel, resume playing.
-			self.playMovie()
+	def GetPictureCacheFileName(self, TheSequenceNum):
+		'''
+		描述：根据session，序列号，前缀等生成图片缓存文件名
+		参数：序列号
+		返回：文件名
+        '''
+		TheFileName = self.CacheDirPicture + '/' + self.CacheFront + str(self.Session)\
+		 + '_' + str(TheSequenceNum) + self.PictureBack
+		return TheFileName
 
+	def GetAudioCacheFileName(self, TheSequenceNum):
+		'''
+		描述：根据session，序列号，前缀等生成音频缓存文件名
+		参数：序列号
+		返回：文件名
+        '''
+		TheFileName = self.CacheDirAudio + '/' + self.CacheFront + str(self.Session)\
+		 + '_' + str(TheSequenceNum) + self.AudioBack
+		return TheFileName
 
 if __name__ == "__main__":
-	Root = tkinter.Tk()
-	TheClient = Client(Root, Constants.SERVER_ADDR, Constants.SERVER_CONTROL_PORT, Constants.CLIENT_DATA_PORT, "test/test")
+	Root = Tk()
+	TheClient = Client(Root, Constants.SERVER_ADDR, Constants.SERVER_CONTROL_PORT, "test/test")
 	Root.mainloop()

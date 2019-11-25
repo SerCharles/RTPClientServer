@@ -275,6 +275,7 @@ class ServerManager:
         '''
         if self.DataSocket != None:
             try:
+                self.DataSocket.shutdown(SHUT_RDWR)
                 self.DataSocket.close()
             except:
                 donothing = 1
@@ -297,28 +298,30 @@ class ServerManager:
 
         if Success == True:
             for i in range(Constants.FILE_NUMBER):
-                #teardown
-                print(i)
+                print("It is sending the " + str(i) + " th picture.")
+                WhetherFirst = True
                 if self.Valid != True:
                     break
                 if self.RTPStatus == Constants.RTP_TRANSPORT_PLAYING:
+                    TheEntireFileName = self.CurrentFileName + str(i) + '.jpg'
                     try:
-                        File = open(self.CurrentFileName + str(i) + '.jpg', 'rb')
+                        File = open(TheEntireFileName, 'rb')
                     except:
                         Success = False
                         break
                     while True:
                         TheData = File.read(Constants.DATA_PACKET_SIZE - Constants.DATA_HEADER_SIZE)
-                        #print(len(TheData))
+                        time.sleep(0.1)
+
                         if len(TheData) == 0:
                             break
-                        self.SendRTPPacket(TheData)
+                        self.SendRTPPacket(TheData, WhetherFirst)
+                        WhetherFirst = False
                     File.close()
-                    time.sleep(1)
         print("The RTP Data Process of Client (", self.ClientIP,",",self.ClientControlPort,") has closed")
         return        
 
-    def SendRTPPacket(self, TheData):
+    def SendRTPPacket(self, TheData, WhetherFirst):
         '''
         描述：将一个数据打包成RTP包，然后发送出去
         参数：无
@@ -326,9 +329,16 @@ class ServerManager:
         '''
         ThePacket = RtpPacket()
         self.DataSequence = self.DataSequence + 1
+        if WhetherFirst:
+            TheMarker = 0
+        else:
+            TheMarker = 1
         ThePacket.encode(Constants.RTP_CURRENT_VERSION, Constants.RTP_PADDLING_FALSE, Constants.RTP_EXTENSION_FALSE, \
-        Constants.RTP_CC, self.DataSequence, Constants.RTP_MARKER_FALSE, Constants.RTP_TYPE_JPEG, Constants.RTP_SSRC ,\
+        Constants.RTP_CC, self.DataSequence, TheMarker, Constants.RTP_TYPE_JPEG, Constants.RTP_SSRC ,\
         TheData)
         TheSendData = ThePacket.getPacket()
-        self.DataSocket.sendto(TheSendData,(self.ClientIP, self.ClientDataPort))
+        try:
+            self.DataSocket.sendto(TheSendData,(self.ClientIP, self.ClientDataPort))
+        except:
+            donothing = True
         return

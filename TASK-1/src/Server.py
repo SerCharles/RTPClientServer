@@ -10,6 +10,8 @@ class Server:
     服务器类
     '''
     def __init__(self):
+        self.ServerIP = ""
+        self.ServerControlPort = Constants.SERVER_CONTROL_PORT
         self.InitSocket()
         self.ListenLinks()
 
@@ -25,7 +27,7 @@ class Server:
         #self.DataSequence = 0
 
         self.ControlSocket = socket.socket()
-        self.ControlSocket.bind((Constants.SERVER_ADDR, Constants.SERVER_CONTROL_PORT))
+        self.ControlSocket.bind((self.ServerIP, self.ServerControlPort))
         self.ControlSocket.listen(5)
         self.ControlSequence = 0
 
