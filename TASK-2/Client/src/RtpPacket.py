@@ -55,7 +55,7 @@ class RtpPacket:
 	def Marker(self):
 		'''Return Marker Type'''
 		marker = ((self.header[1] & 128) >> 7) & 1
-		print(marker)
+		#print(marker)
 		return marker  
 
 

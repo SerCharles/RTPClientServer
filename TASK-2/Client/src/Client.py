@@ -1,9 +1,11 @@
 from tkinter import *
 import tkinter.messagebox as MessageBox
 from PIL import Image, ImageTk
+from PIL import ImageFile
+ImageFile.LOAD_TRUNCATED_IMAGES = True
 import socket, threading, sys, traceback, os
 import random
-
+import time
 
 from RtpPacket import RtpPacket
 from Constants import Constants
@@ -41,6 +43,10 @@ class Client:
 		self.DataSequence = 0
 		self.PictureFrame = 0
 		self.AudioFrame = 0
+		self.PicturePlay = 0
+		self.AudioPlay = 0
+		self.PicturePerSecond = 25
+		self.BufferTime = 10
 
 		#文件相关，包括要播放的视频文件名，缓存文件和接收文件的文件格式和目录名
 		self.FileName = TheFileName
@@ -98,7 +104,7 @@ class Client:
 		self.Teardown.grid(row = 1, column = 3, padx = 2, pady = 2)
 		
 		# Create a label to display the movie
-		self.Label = Label(self.master, height=19)
+		self.Label = Label(self.master, height = 60)
 		self.Label.grid(row = 0, column = 0, columnspan = 4, sticky = W + E + N + S, padx = 5, pady = 5) 
 	
 	#网络连接相关操作，包括数据端口连接服务器，控制端口开启等
@@ -309,9 +315,11 @@ class Client:
         参数：回复内容
         返回：无
 		'''	
+		WhetherStartedPlay = False
 		while True:
 			try:
 				TheData = self.DataSocket.recv(Constants.DATA_PACKET_SIZE)
+				#控制接收文件
 				if TheData:
 					ThePacket = RtpPacket()
 					ThePacket.decode(TheData)
@@ -320,15 +328,26 @@ class Client:
 					CurrentMarker = ThePacket.Marker()
 					if CurrentMarker == 0:
 						self.PictureFrame = self.PictureFrame + 1
-						print("New Frame")
-					print("Current Seq Num: " + str(CurrentSequenceNum))
-										
+						#print("New Frame")
+					#print("Current Seq Num: " + str(CurrentSequenceNum))
+					#控制缓存图片					
 					if CurrentSequenceNum > self.DataSequence: # Discard the late packet
+						if self.DataSequence != CurrentSequenceNum - 1:
+							print("The packets between ", self.DataSequence + 1, " and ", CurrentSequenceNum - 1, " has lost")
+
 						self.DataSequence = CurrentSequenceNum
 						self.WritePictureFrame(ThePacket.getPayload())
 						if CurrentMarker == 0:
 							TheCacheFileName = self.GetPictureCacheFileName(self.PictureFrame - 1)
-							self.UpdateMovie(TheCacheFileName)
+					else:
+						print("The packet of ", CurrentSequenceNum, " has lost")
+				#控制播放图片
+				if self.PictureFrame - self.PicturePlay >= (self.PicturePerSecond * self.BufferTime):
+					if WhetherStartedPlay == False:
+						WhetherStartedPlay = True
+						threading.Thread(target = self.UpdateMovie).start()
+
+
 			except:
 				# Stop listening upon requesting PAUSE or TEARDOWN
 				if self.PlayEvent.isSet(): 
@@ -354,14 +373,37 @@ class Client:
 		File.write(TheData)
 		File.close()
 	
-	def UpdateMovie(self, ImageFile):
+	def UpdateMovie(self):
 		'''
-		描述：更新显示
+		描述：控制视频播放
         参数：文件名
         返回：无
 		'''	
-		ThePhoto = ImageTk.PhotoImage(Image.open(ImageFile))
-		self.Label.configure(image = ThePhoto, height=288) 
+		while True:
+			if self.Valid == False:
+				break
+			if self.Status != Constants.RTP_TRANSPORT_PLAYING:
+				continue
+			if self.PicturePlay >= self.PictureFrame:
+				continue
+			#print("The player has received ", self.PictureFrame, " frames")
+			#print("The player has played ", self.PicturePlay, " frames")
+			self.PicturePlay = self.PicturePlay + 1
+			TheFileName = self.GetPictureCacheFileName(self.PicturePlay)
+			if 1:
+				self.UpdatePictureShow(TheFileName)
+			else:
+				donothing = True
+			time.sleep(1 / self.PicturePerSecond)
+
+	def UpdatePictureShow(self, TheImageFileName):
+		'''
+		描述：更新图片显示
+        参数：文件名
+        返回：无
+		'''	
+		ThePhoto = ImageTk.PhotoImage(Image.open(TheImageFileName))
+		self.Label.configure(image = ThePhoto, height = 800) 
 		self.Label.image = ThePhoto
 		
 	#基本操作函数，比如随机生成端口，生成完整文件名
@@ -396,5 +438,5 @@ class Client:
 
 if __name__ == "__main__":
 	Root = Tk()
-	TheClient = Client(Root, Constants.SERVER_ADDR, Constants.SERVER_CONTROL_PORT, "test/test")
+	TheClient = Client(Root, Constants.SERVER_ADDR, Constants.SERVER_CONTROL_PORT, "test.mp4")
 	Root.mainloop()

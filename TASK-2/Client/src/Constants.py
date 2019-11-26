@@ -14,7 +14,7 @@ class Constants:
     CLIENT_CONTROL_PORT = 10001
 
     #数据相关
-    DATA_PACKET_SIZE = 2560
+    DATA_PACKET_SIZE = 25600
     DATA_HEADER_SIZE = 12
     CONTROL_SIZE = 1024
 

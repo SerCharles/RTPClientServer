@@ -3,6 +3,8 @@ import threading
 import random
 import os
 import time
+import cv2
+
 from Constants import Constants
 from RtpPacket import RtpPacket
 
@@ -38,8 +40,12 @@ class ServerManager:
         #session
         self.Session = Constants.UNDEFINED_NUMBER
 
-        #当前要打开的文件
+        #文件信息
         self.CurrentFileName = ""
+        self.BufferImageDir = "BufferImage"
+        self.BufferAudioDir = "BufferAudio"
+        self.BufferImageBack = ".jpg"
+        self.BufferAudioBack = ".wav"
 
         #进入循环接受指令状态
         self.ReceiveRTSPCommand()
@@ -208,6 +214,34 @@ class ServerManager:
         ThePort = random.randint(10001, 65535)
         return ThePort
 
+    def PrepareBufferPlace(self):
+        '''
+        描述：生成缓存文件夹
+        参数：无
+        返回：无
+        '''
+        if not os.path.exists(self.BufferImageDir):
+            os.mkdir(self.BufferImageDir)
+        if not os.path.exists(self.BufferAudioDir):
+            os.mkdir(self.BufferAudioDir)
+
+    def GetBufferImageName(self):
+        '''
+        描述：生成缓存文件名
+        参数：无
+        返回：无
+        '''
+        return self.BufferImageDir + '/' + str(self.Session) + self.BufferImageBack
+    
+    def GetBufferAudioName(self):
+        '''
+        描述：生成缓存文件名
+        参数：无
+        返回：无
+        '''
+        return self.BufferAudioDir + '/' + str(self.Session) + self.BufferAudioBack
+
+
     def HandleSetup(self, TheFileName, TheDataPort):
         '''
         描述：处理setup请求，也就是建立连接的第一步，这里要获取待播放的文件名和rtp连接端口等
@@ -242,14 +276,14 @@ class ServerManager:
         参数：文件名
         返回：第一个参数T/F代表是否成功，第二个参数代表消息
         '''
-        #if self.RTPStatus == Constants.RTP_TRANSPORT_PLAYING:
-        #    self.RTPStatus = Constants.RTP_TRANSPORT_READY
-        #    return True, "OK"
-        #else:
-        #    if self.RTPStatus == Constants.RTP_TRANSPORT_INIT:
-        #        return False, Constants.RTP_ERROR_INIT
-        #    else:
-        #        return False, Constants.RTP_ERROR_READY
+        if self.RTPStatus == Constants.RTP_TRANSPORT_PLAYING:
+            self.RTPStatus = Constants.RTP_TRANSPORT_READY
+            return True, "OK"
+        else:
+            if self.RTPStatus == Constants.RTP_TRANSPORT_INIT:
+                return False, Constants.RTP_ERROR_INIT
+            else:
+                return False, Constants.RTP_ERROR_READY
         return False, "Not Implemented"        
     
     def HandleResume(self):
@@ -293,31 +327,46 @@ class ServerManager:
         print("The new Data Port is ", self.ClientDataPort)
 
         Success = True
-        
+        TheVideo = cv2.VideoCapture(self.CurrentFileName)
+        if TheVideo.isOpened():
+            WhetherRemain, TheFrame = TheVideo.read()
+        else:
+            WhetherRemain = False
         #print(Success)
 
-        if Success == True:
-            for i in range(Constants.FILE_NUMBER):
-                print("It is sending the " + str(i) + " th picture.")
-                WhetherFirst = True
-                if self.Valid != True:
-                    break
+        if Success == True and WhetherRemain == True:
+            self.PrepareBufferPlace()
+            CurrentNumber = 0
+            while WhetherRemain:
+                #print("It is sending the " + str(i) + " th picture.")
                 if self.RTPStatus == Constants.RTP_TRANSPORT_PLAYING:
-                    TheEntireFileName = self.CurrentFileName + str(i) + '.jpg'
+                    if self.Valid != True:
+                        break
+
+                    #保存一帧视频
+                    CurrentNumber = CurrentNumber + 1
+                    WhetherRemain = self.CreateBufferImage(TheVideo, CurrentNumber)
+                    if WhetherRemain == False:
+                        break
+                    TheBufferImageName = self.GetBufferImageName()
+
+                    #读取buffer视频     
+                    WhetherFirst = True   
                     try:
-                        File = open(TheEntireFileName, 'rb')
+                        File = open(TheBufferImageName, 'rb')
                     except:
                         Success = False
                         break
                     while True:
+                        #循环读取一帧并且发送
                         TheData = File.read(Constants.DATA_PACKET_SIZE - Constants.DATA_HEADER_SIZE)
-                        time.sleep(0.1)
-
                         if len(TheData) == 0:
                             break
                         self.SendRTPPacket(TheData, WhetherFirst)
                         WhetherFirst = False
                     File.close()
+                    #time.sleep(0.02)
+        TheVideo.release()
         print("The RTP Data Process of Client (", self.ClientIP,",",self.ClientControlPort,") has closed")
         return        
 
@@ -342,3 +391,21 @@ class ServerManager:
         except:
             donothing = True
         return
+
+    #用于视频文件读取的函数
+    def CreateBufferImage(self, TheVideo, TheNumber):
+        '''
+        描述：读取视频一帧，生成缓存文件
+        参数：视频
+        返回：是否remain，是true否false
+        '''
+        TheBufferImageName = self.GetBufferImageName()
+        try:
+            os.remove(TheBufferImageName)
+        except:
+            donothing = True
+        WhetherRemain, TheFrame = TheVideo.read()
+        cv2.imwrite(TheBufferImageName, TheFrame)
+        #cv2.imwrite(TheBufferImageName + '_' + str(TheNumber), TheFrame)
+        #cv2.waitKey(1)
+        return WhetherRemain
