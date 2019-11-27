@@ -43,9 +43,11 @@ class ServerManager:
         #文件信息
         self.CurrentFileName = ""
         self.BufferImageDir = "BufferImage"
-        self.BufferAudioDir = "BufferAudio"
         self.BufferImageBack = ".jpg"
-        self.BufferAudioBack = ".wav"
+
+        #GBN用
+        self.WindowSize = Constants.GBN_WINDOW_SIZE
+        self.TimeOutTime = Constants.TIMEOUT_TIME
 
         #进入循环接受指令状态
         self.ReceiveRTSPCommand()
@@ -57,7 +59,7 @@ class ServerManager:
         返回：无
         '''
         self.DataSocket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        self.DataSocket.settimeout(0.5)
+        self.DataSocket.settimeout(Constants.TIMEOUT_TIME)
         while True:
             try:
                 self.ServerDataPort = self.GenerateRandomPort()
@@ -222,8 +224,7 @@ class ServerManager:
         '''
         if not os.path.exists(self.BufferImageDir):
             os.mkdir(self.BufferImageDir)
-        if not os.path.exists(self.BufferAudioDir):
-            os.mkdir(self.BufferAudioDir)
+
 
     def GetBufferImageName(self):
         '''
@@ -232,14 +233,6 @@ class ServerManager:
         返回：无
         '''
         return self.BufferImageDir + '/' + str(self.Session) + self.BufferImageBack
-    
-    def GetBufferAudioName(self):
-        '''
-        描述：生成缓存文件名
-        参数：无
-        返回：无
-        '''
-        return self.BufferAudioDir + '/' + str(self.Session) + self.BufferAudioBack
 
 
     def HandleSetup(self, TheFileName, TheDataPort):
@@ -322,68 +315,49 @@ class ServerManager:
         参数：无
         返回：无
         '''
+        #初始化网络，待传输视频，文件夹等
         self.InitializeDataPort()
+        self.PrepareBufferPlace()
         print("A new Process of Client (", self.ClientIP,",",self.ClientControlPort,") has opened for RTP")
         print("The new Data Port is ", self.ClientDataPort)
-
+        print("The Server Data Port is ", self.ServerDataPort)
         Success = True
         TheVideo = cv2.VideoCapture(self.CurrentFileName)
         if TheVideo.isOpened():
             WhetherRemain, TheFrame = TheVideo.read()
         else:
             WhetherRemain = False
-        #print(Success)
 
+        #状态判断等
         if Success == True and WhetherRemain == True:
-            self.PrepareBufferPlace()
-            CurrentNumber = 0
-            while WhetherRemain:
-                #print("It is sending the " + str(i) + " th picture.")
+            while WhetherRemain == True:
                 if self.RTPStatus == Constants.RTP_TRANSPORT_PLAYING:
                     if self.Valid != True:
                         break
 
-                    #保存一帧视频
-                    CurrentNumber = CurrentNumber + 1
-                    WhetherRemain = self.CreateBufferImage(TheVideo, CurrentNumber)
+                    #读取一帧视频,并且GBN发送
+                    WhetherRemain = self.CreateBufferImage(TheVideo)
                     if WhetherRemain == False:
                         break
-                    TheBufferImageName = self.GetBufferImageName()
-
-                    #读取buffer视频     
-                    WhetherFirst = True   
-                    try:
-                        File = open(TheBufferImageName, 'rb')
-                    except:
-                        Success = False
+                    if self.SendOnePictureGBN() == False:
                         break
-                    while True:
-                        #循环读取一帧并且发送
-                        TheData = File.read(Constants.DATA_PACKET_SIZE - Constants.DATA_HEADER_SIZE)
-                        if len(TheData) == 0:
-                            break
-                        self.SendRTPPacket(TheData, WhetherFirst)
-                        WhetherFirst = False
-                    File.close()
-                    #time.sleep(0.02)
         TheVideo.release()
         print("The RTP Data Process of Client (", self.ClientIP,",",self.ClientControlPort,") has closed")
         return        
 
-    def SendRTPPacket(self, TheData, WhetherFirst):
+    def SendRTPPacket(self, TheData, WhetherFirst, TheDataSequence):
         '''
         描述：将一个数据打包成RTP包，然后发送出去
-        参数：无
+        参数：数据，是否第一个，seq
         返回：无
         '''
         ThePacket = RtpPacket()
-        self.DataSequence = self.DataSequence + 1
         if WhetherFirst:
             TheMarker = 0
         else:
             TheMarker = 1
         ThePacket.encode(Constants.RTP_CURRENT_VERSION, Constants.RTP_PADDLING_FALSE, Constants.RTP_EXTENSION_FALSE, \
-        Constants.RTP_CC, self.DataSequence, TheMarker, Constants.RTP_TYPE_JPEG, Constants.RTP_SSRC ,\
+        Constants.RTP_CC, TheDataSequence, TheMarker, Constants.RTP_TYPE_JPEG, Constants.RTP_SSRC ,\
         TheData)
         TheSendData = ThePacket.getPacket()
         try:
@@ -393,7 +367,7 @@ class ServerManager:
         return
 
     #用于视频文件读取的函数
-    def CreateBufferImage(self, TheVideo, TheNumber):
+    def CreateBufferImage(self, TheVideo):
         '''
         描述：读取视频一帧，生成缓存文件
         参数：视频
@@ -406,6 +380,92 @@ class ServerManager:
             donothing = True
         WhetherRemain, TheFrame = TheVideo.read()
         cv2.imwrite(TheBufferImageName, TheFrame)
-        #cv2.imwrite(TheBufferImageName + '_' + str(TheNumber), TheFrame)
         #cv2.waitKey(1)
         return WhetherRemain
+
+
+    #关于GBN发送的函数
+    def SendOnePictureGBN(self):
+        '''
+        描述：GBN发送一张图
+        参数：无
+        返回：成功true失败false
+        '''
+        Success = True
+        TheDataList = []
+        Success, TheDataList = self.PartitionOnePicture()
+        if Success == False:
+            return False
+        TotalNumber = len(TheDataList)
+        CurrentPlace = 0
+        #print(CurrentPlace, TotalNumber)
+        #循环发送窗口
+        while CurrentPlace < TotalNumber:
+            if self.RTPStatus == Constants.RTP_TRANSPORT_PLAYING:
+                if self.Valid != True:
+                    break
+                i = 0
+                #一个发送窗口
+                while CurrentPlace + i < TotalNumber and i < self.WindowSize:
+                    TheSequenceNum = self.DataSequence + 1 + CurrentPlace + i
+                    if CurrentPlace + i == 0:
+                        WhetherFirst = True
+                    else:
+                        WhetherFirst = False
+                    #print("Sending ", TheSequenceNum)
+                    self.SendRTPPacket(TheDataList[CurrentPlace + i], WhetherFirst, TheSequenceNum)
+                    i = i + 1
+                TheMaxACK = self.ReceiveACK(self.DataSequence + CurrentPlace)
+                if TheMaxACK - self.DataSequence > CurrentPlace:
+                    CurrentPlace = TheMaxACK - self.DataSequence
+        self.DataSequence = self.DataSequence + TotalNumber
+        return True
+
+    def ReceiveACK(self, PreviousACKNumber):
+        '''
+        描述：接收GBN发送的ACK
+        参数：之前ACK过的最大数
+        返回：这次ACK的最大数
+        '''
+        MaxACKNumber = PreviousACKNumber
+        self.DataSocket.settimeout(self.TimeOutTime)
+        for i in range(self.WindowSize):
+            try:
+                Data = self.DataSocket.recv(Constants.CONTROL_SIZE).decode()
+                #print(Data)
+                TheACKNumber = int(Data[4:])
+                if TheACKNumber > MaxACKNumber:
+                    MaxACKNumber = TheACKNumber
+            except:
+                donothing = True
+        #print(MaxACKNumber)
+        return MaxACKNumber
+
+
+    def PartitionOnePicture(self):
+        '''
+        描述：把视频一帧拆分为若干数据包
+        参数：无
+        返回：是否成功，数据包数组
+        '''
+        Success = True   
+        TheBufferImageName = self.GetBufferImageName()
+        try:
+            File = open(TheBufferImageName, 'rb')
+        except:
+            Success = False
+            return False
+        DataList = []
+        while True:
+            #循环读取一帧并且发送
+            TheData = File.read(Constants.DATA_PACKET_SIZE - Constants.DATA_HEADER_SIZE)
+            if len(TheData) == 0:
+                break
+            else:
+                DataList.append(TheData)
+        File.close()
+        return Success, DataList
+
+
+
+

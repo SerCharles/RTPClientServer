@@ -49,3 +49,7 @@ class Constants:
     RTP_MARKER_FALSE = 0
     RTP_TYPE_JPEG = 26
     RTP_SSRC = 0
+
+    #GBN窗口大小
+    GBN_WINDOW_SIZE = 1
+    TIMEOUT_TIME = 4

@@ -318,7 +318,7 @@ class Client:
 		WhetherStartedPlay = False
 		while True:
 			try:
-				TheData = self.DataSocket.recv(Constants.DATA_PACKET_SIZE)
+				TheData, TheAddress = self.DataSocket.recvfrom(Constants.DATA_PACKET_SIZE)
 				#控制接收文件
 				if TheData:
 					ThePacket = RtpPacket()
@@ -326,27 +326,27 @@ class Client:
 					
 					CurrentSequenceNum = ThePacket.seqNum()
 					CurrentMarker = ThePacket.Marker()
-					if CurrentMarker == 0:
-						self.PictureFrame = self.PictureFrame + 1
-						#print("New Frame")
-					#print("Current Seq Num: " + str(CurrentSequenceNum))
-					#控制缓存图片					
-					if CurrentSequenceNum > self.DataSequence: # Discard the late packet
-						if self.DataSequence != CurrentSequenceNum - 1:
-							print("The packets between ", self.DataSequence + 1, " and ", CurrentSequenceNum - 1, " has lost")
 
+					#丢弃其余数据包
+					if self.DataSequence == CurrentSequenceNum - 1:
+						#print("received packet ", CurrentSequenceNum)
+						#回复ACK
+						ACKMessage = "ACK " + str(CurrentSequenceNum)
+						self.DataSocket.sendto(ACKMessage.encode(), TheAddress)
+
+						#判断是否新图片
+						if CurrentMarker == 0:
+							self.PictureFrame = self.PictureFrame + 1
+
+						#写入
 						self.DataSequence = CurrentSequenceNum
 						self.WritePictureFrame(ThePacket.getPayload())
-						if CurrentMarker == 0:
-							TheCacheFileName = self.GetPictureCacheFileName(self.PictureFrame - 1)
-					else:
-						print("The packet of ", CurrentSequenceNum, " has lost")
+
 				#控制播放图片
 				if self.PictureFrame - self.PicturePlay >= (self.PicturePerSecond * self.BufferTime):
 					if WhetherStartedPlay == False:
 						WhetherStartedPlay = True
 						threading.Thread(target = self.UpdateMovie).start()
-
 
 			except:
 				# Stop listening upon requesting PAUSE or TEARDOWN
