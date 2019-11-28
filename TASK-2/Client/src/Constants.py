@@ -16,7 +16,8 @@ class Constants:
     #数据相关
     DATA_PACKET_SIZE = 25600
     DATA_HEADER_SIZE = 12
-    CONTROL_SIZE = 1024
+    CONTROL_SIZE = 4096
+
 
     #RTSP 回复
     STATUS_CODE_SUCCESS = 200
@@ -31,6 +32,7 @@ class Constants:
     RTP_TRANSPORT_INIT = 0
     RTP_TRANSPORT_READY = 1
     RTP_TRANSPORT_PLAYING = 2
+
 
     #传输状态对应错误码
     RTP_ERROR_INIT = "Wrong Status, The server is not yet set up."

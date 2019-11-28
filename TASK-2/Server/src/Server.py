@@ -7,7 +7,7 @@ from ServerManager import ServerManager
 
 class Server:
     '''
-    服务器类
+    主服务器类
     '''
     def __init__(self):
         self.ServerIP = ""

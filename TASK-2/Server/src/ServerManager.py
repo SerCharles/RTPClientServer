@@ -44,6 +44,8 @@ class ServerManager:
         self.CurrentFileName = ""
         self.BufferImageDir = "BufferImage"
         self.BufferImageBack = ".jpg"
+        self.FrameRate = Constants.UNDEFINED_NUMBER
+        self.TotalFrameNumber = Constants.UNDEFINED_NUMBER
 
         #GBN用
         self.WindowSize = Constants.GBN_WINDOW_SIZE
@@ -80,6 +82,7 @@ class ServerManager:
             TheCommand = {}
             RawCommand = self.ControlSocket.recv(Constants.CONTROL_SIZE)
             print(RawCommand.decode("utf-8"))
+            print("-----------------------------")
             if RawCommand: 
                 TheCommand = self.ParseRTSPCommand(RawCommand.decode("utf-8"))
                 self.HandleRTSPCommand(TheCommand)
@@ -114,6 +117,7 @@ class ServerManager:
             TheFileName = ""
             TheMessage = ""
             TheReply = ""
+            TheAdditionalInfo = ""
 
             #验证session
             if TheCommand["Type"] != "SETUP":
@@ -145,9 +149,15 @@ class ServerManager:
                     Success, TheMessage = self.HandlePlay()
                 elif TheCommand["Type"] == "PAUSE":
                     Success, TheMessage = self.HandlePause()
+                elif TheCommand["Type"] == "RESUME":
+                    Success, TheMessage = self.HandleResume()
                 elif TheCommand["Type"] == "TEARDOWN":
                     Success, TheMessage = self.HandleTearDown()
-            TheReply = self.GenerateRTSPReply(TheInfo, Success, TheMessage, TheSequence, TheSession)
+                elif TheCommand["Type"] == "GET_PARAMETER":
+                    Success, TheMessage, TheAdditionalInfo = self.HandleGetParameter()
+            TheReply = self.GenerateRTSPReply(TheInfo, Success, TheMessage, TheSequence, TheSession, TheAdditionalInfo)
+            print(TheReply)
+            print("-----------------------------")
             self.SendBackReply(TheReply)
             return
         except:
@@ -168,20 +178,20 @@ class ServerManager:
                 if i == 0:
                     TheCommand["Type"] = ItemList[0]
                     TheCommand["Info"] = ItemList[2]
-                    if TheCommand["Type"] in ["SETUP", "PLAY", "PAUSE", "TEARDOWN"]:
+                    if TheCommand["Type"] in ["SETUP", "PLAY", "PAUSE", "RESUME", "TEARDOWN", "GET_PARAMETER"]:
                         TheCommand["FileName"] = ItemList[1]
                 elif i == 1:
                     TheCommand["Sequence"] = int(ItemList[1])
                 elif i == 2:
                     if TheCommand["Type"] in ["SETUP"]:
                         TheCommand["Port"] = int(ItemList[3])
-                    elif TheCommand["Type"] in ["PLAY", "PAUSE", "TEARDOWN"]:
+                    elif TheCommand["Type"] in ["PLAY", "PAUSE", "RESUME", "TEARDOWN", "GET_PARAMETER"]:
                         TheCommand["Session"] = int(ItemList[1])
         except:
             TheCommand = {}
         return TheCommand
     
-    def GenerateRTSPReply(self, TheInfo, WhetherSuccess, TheMessage, TheSequence, TheSession):
+    def GenerateRTSPReply(self, TheInfo, WhetherSuccess, TheMessage, TheSequence, TheSession, TheAdditionalInfo):
         '''
         描述：生成RTSP回复
         参数：返回的RTSP类型，是否成功，顺序码，session
@@ -195,7 +205,7 @@ class ServerManager:
             TheStatusCode = Constants.STATUS_CODE_FAIL
         TheReply = TheInfo + " " + str(TheStatusCode) + " " + TheMessage + "\n"\
         + "Seq:" + " " + str(TheSequence) + "\n"\
-        + "Session:" + " " + str(TheSession)
+        + "Session:" + " " + str(TheSession) + TheAdditionalInfo
         return TheReply
 
     def GenerateSession(self):
@@ -225,7 +235,6 @@ class ServerManager:
         if not os.path.exists(self.BufferImageDir):
             os.mkdir(self.BufferImageDir)
 
-
     def GetBufferImageName(self):
         '''
         描述：生成缓存文件名
@@ -233,7 +242,6 @@ class ServerManager:
         返回：无
         '''
         return self.BufferImageDir + '/' + str(self.Session) + self.BufferImageBack
-
 
     def HandleSetup(self, TheFileName, TheDataPort):
         '''
@@ -309,6 +317,22 @@ class ServerManager:
         self.Valid = False
         return True, "OK"
 
+    def HandleGetParameter(self):
+        '''
+        描述：处理get parameter请求，也就是获取视频基本信息
+        参数：无
+        返回：第一个参数T/F代表是否成功，第二个参数代表消息, 第三个参数代表额外的行---返回的视频信息
+        '''
+        if self.RTPStatus == Constants.RTP_TRANSPORT_READY:
+            TheFrameNumber, TheFrameRate = self.GetVideoInfo()
+            TheAdditionalInfo = "\n" + "FrameNumber: " + str(TheFrameNumber) + " FrameRate: " + str(TheFrameRate)
+            return True, "OK", TheAdditionalInfo
+        else:
+            if self.RTPStatus == Constants.RTP_TRANSPORT_INIT:
+                return False, Constants.RTP_ERROR_INIT, ""
+            else:
+                return False, Constants.RTP_ERROR_PLAYING, ""
+
     def RTPSend(self):
         '''
         描述：多线程发送文件
@@ -340,7 +364,8 @@ class ServerManager:
                     if WhetherRemain == False:
                         break
                     if self.SendOnePictureGBN() == False:
-                        break
+                        break     
+
         TheVideo.release()
         print("The RTP Data Process of Client (", self.ClientIP,",",self.ClientControlPort,") has closed")
         return        
@@ -366,7 +391,7 @@ class ServerManager:
             donothing = True
         return
 
-    #用于视频文件读取的函数
+    #用于视频文件和视频信息读取的函数
     def CreateBufferImage(self, TheVideo):
         '''
         描述：读取视频一帧，生成缓存文件
@@ -383,6 +408,18 @@ class ServerManager:
         #cv2.waitKey(1)
         return WhetherRemain
 
+    def GetVideoInfo(self):
+        '''
+        描述：获取视频的帧率和总帧数
+        参数：无
+        返回：帧数，帧率
+        '''
+        TheVideo = cv2.VideoCapture(self.CurrentFileName)
+        TheFrameRate = round(TheVideo.get(cv2.CAP_PROP_FPS))
+        TheFrameNumber = round(TheVideo.get(cv2.CAP_PROP_FRAME_COUNT))
+        self.TotalFrameNumber = TheFrameNumber
+        self.FrameRate = TheFrameRate
+        return TheFrameNumber, TheFrameRate
 
     #关于GBN发送的函数
     def SendOnePictureGBN(self):
@@ -401,23 +438,23 @@ class ServerManager:
         #print(CurrentPlace, TotalNumber)
         #循环发送窗口
         while CurrentPlace < TotalNumber:
-            if self.RTPStatus == Constants.RTP_TRANSPORT_PLAYING:
-                if self.Valid != True:
-                    break
-                i = 0
-                #一个发送窗口
-                while CurrentPlace + i < TotalNumber and i < self.WindowSize:
-                    TheSequenceNum = self.DataSequence + 1 + CurrentPlace + i
-                    if CurrentPlace + i == 0:
-                        WhetherFirst = True
-                    else:
-                        WhetherFirst = False
-                    #print("Sending ", TheSequenceNum)
-                    self.SendRTPPacket(TheDataList[CurrentPlace + i], WhetherFirst, TheSequenceNum)
-                    i = i + 1
-                TheMaxACK = self.ReceiveACK(self.DataSequence + CurrentPlace)
-                if TheMaxACK - self.DataSequence > CurrentPlace:
-                    CurrentPlace = TheMaxACK - self.DataSequence
+            i = 0
+            if self.Valid == False:
+                return False
+            #一个发送窗口
+            while CurrentPlace + i < TotalNumber and i < self.WindowSize:
+                TheSequenceNum = self.DataSequence + 1 + CurrentPlace + i
+                if CurrentPlace + i == 0:
+                    WhetherFirst = True
+                else:
+                    WhetherFirst = False
+                #print("Sending ", TheSequenceNum)
+                self.SendRTPPacket(TheDataList[CurrentPlace + i], WhetherFirst, TheSequenceNum)
+                i = i + 1
+            TheMaxACK = self.ReceiveACK(self.DataSequence + CurrentPlace)
+            #print(TheMaxACK)
+            if TheMaxACK - self.DataSequence > CurrentPlace:
+                CurrentPlace = TheMaxACK - self.DataSequence
         self.DataSequence = self.DataSequence + TotalNumber
         return True
 
@@ -440,7 +477,6 @@ class ServerManager:
                 donothing = True
         #print(MaxACKNumber)
         return MaxACKNumber
-
 
     def PartitionOnePicture(self):
         '''
@@ -465,7 +501,6 @@ class ServerManager:
                 DataList.append(TheData)
         File.close()
         return Success, DataList
-
 
 
 
