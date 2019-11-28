@@ -62,6 +62,9 @@ class PlayClient:
 		#进度条信息
 		self.ScalerValueMax = Constants.UNDEFINED_NUMBER
 
+		#播放速率
+		self.CurrentPlaySpeed = 1
+
 		#初始化操作：初始化控件，初始化目录，连接服务器,开始播放
 		self.CreateWidgets()
 		self.InitDir()
@@ -99,7 +102,33 @@ class PlayClient:
 		#图片显示
 		self.Movie = Label(self.master)
 		self.Movie.grid(row = 0, column = 0, columnspan = 4, sticky = W + E + N + S, padx = 5, pady = 5) 
+
+		#播放速率选择
+		self.CreateChoiceButtons()
 	
+	def CreateChoiceButtons(self):
+		'''
+		描述：初始化播放速率选择控件
+        参数：无
+        返回：无
+		'''
+		self.IntVarChoiceValue = IntVar()
+		#播放速率列表
+		self.PlaySpeedList = [(0.5, 0), (0.75, 1), (1, 2), (1.25, 3), (1.5, 4), (2, 5)]
+		self.ChoiceShow = Label(self.master, text='选择播放速率')
+		self.ChoiceShow.grid(row = 2, column = 2, padx = 2, pady = 2)
+ 
+		#for循环创建单选框
+		self.ChoiceButtonList = []
+		for Speed, Num in self.PlaySpeedList:
+			TheRadioButton = Radiobutton(self.master, text = "X" + str(Speed), value = Num, command = self.ChangePlaySpeed\
+			, variable = self.IntVarChoiceValue)
+			TheRadioButton.grid(row = 3 + Num, column = 2, padx = 1, pady = 0)
+			self.ChoiceButtonList.append(TheRadioButton)
+		#设置初始值
+		self.IntVarChoiceValue.set(2)
+
+
 	def CreateScaler(self):
 		'''
 		描述：初始化播放进度条和时间显示
@@ -146,7 +175,7 @@ class PlayClient:
 		except:
 			MessageBox.showwarning('Unable to Bind', 'Unable to bind the data link at PORT = %d' %self.DataPort)
 
-	#绑定按钮相关操作，包括SETUP，PLAY，PAUSE，RESUME，TEARDOWN
+	#绑定按钮和事件处理相关操作，包括SETUP，PLAY，PAUSE，RESUME，TEARDOWN, GETPARAMETER，修改进度条，修改倍速，全屏
 	def SetupMovie(self):
 		'''
 		描述：Setup操作
@@ -242,7 +271,17 @@ class PlayClient:
 			if abs(TheFrame - self.PicturePlay) > self.PicturePerSecond:
 				self.PicturePlay = TheFrame
 				self.UpdateProcess()
-
+	
+	def ChangePlaySpeed(self):
+		'''
+		描述：播放速率变化，处理播放速率选择事件
+        参数：无
+        返回：无
+		'''	
+		for i in range(len(self.PlaySpeedList)):
+			if (self.IntVarChoiceValue.get() == i):
+				self.CurrentPlaySpeed = self.PlaySpeedList[i][0]
+				break 
 
 	#控制连接相关函数，包括发送请求，处理收到的回复，处理请求等
 	def SendControlRequest(self, TheRequestType):
@@ -457,7 +496,7 @@ class PlayClient:
 
 			#更新进度条和时间显示
 			self.UpdateScalerAndProcessWhenPlay()	
-			time.sleep(1 / self.PicturePerSecond)
+			time.sleep(1 / self.PicturePerSecond / self.CurrentPlaySpeed)
 
 	def UpdatePictureShow(self, TheImageFileName):
 		'''
