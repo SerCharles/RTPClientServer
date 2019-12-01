@@ -51,6 +51,9 @@ class ServerManager:
         self.WindowSize = Constants.GBN_WINDOW_SIZE
         self.TimeOutTime = Constants.TIMEOUT_TIME
 
+        #开始传输的图片帧序号
+        self.StartPlace = Constants.UNDEFINED_NUMBER
+
         #进入循环接受指令状态
         self.ReceiveRTSPCommand()
     
@@ -120,7 +123,7 @@ class ServerManager:
             TheAdditionalInfo = ""
 
             #验证session
-            if TheCommand["Type"] != "SETUP":
+            if TheCommand["Type"] != "INIT_LINK":
                 if "Session" in TheCommand:
                     TheSession = TheCommand["Session"]
                     if TheSession != self.Session:
@@ -143,7 +146,9 @@ class ServerManager:
             if "FileName" in TheCommand:
                 TheFileName = TheCommand["FileName"]
             if Success:
-                if TheCommand["Type"] == "SETUP":
+                if TheCommand["Type"] == "INIT_LINK":
+                    Success, TheMessage = self.HandleInitLink()
+                elif TheCommand["Type"] == "SETUP":
                     Success, TheMessage = self.HandleSetup(TheFileName, TheCommand["Port"])
                 elif TheCommand["Type"] == "PLAY":
                     Success, TheMessage = self.HandlePlay()
@@ -155,6 +160,9 @@ class ServerManager:
                     Success, TheMessage = self.HandleTearDown()
                 elif TheCommand["Type"] == "GET_PARAMETER":
                     Success, TheMessage, TheAdditionalInfo = self.HandleGetParameter()
+                elif TheCommand["Type"] == "SET_START_PLACE":
+                    Success, TheMessage = self.HandleSetStartPlace(TheCommand["StartPlace"])
+
             TheReply = self.GenerateRTSPReply(TheInfo, Success, TheMessage, TheSequence, TheSession, TheAdditionalInfo)
             print(TheReply)
             print("-----------------------------")
@@ -178,15 +186,18 @@ class ServerManager:
                 if i == 0:
                     TheCommand["Type"] = ItemList[0]
                     TheCommand["Info"] = ItemList[2]
-                    if TheCommand["Type"] in ["SETUP", "PLAY", "PAUSE", "RESUME", "TEARDOWN", "GET_PARAMETER"]:
+                    if TheCommand["Type"] in ["SETUP", "PLAY", "PAUSE", "RESUME", "TEARDOWN", "GET_PARAMETER", "SET_START_PLACE"]:
                         TheCommand["FileName"] = ItemList[1]
                 elif i == 1:
                     TheCommand["Sequence"] = int(ItemList[1])
                 elif i == 2:
+                    if TheCommand["Type"] in ["SETUP","PLAY", "PAUSE", "RESUME", "TEARDOWN", "GET_PARAMETER", "SET_START_PLACE"]:
+                        TheCommand["Session"] = int(ItemList[1])
+                elif i == 3:
                     if TheCommand["Type"] in ["SETUP"]:
                         TheCommand["Port"] = int(ItemList[3])
-                    elif TheCommand["Type"] in ["PLAY", "PAUSE", "RESUME", "TEARDOWN", "GET_PARAMETER"]:
-                        TheCommand["Session"] = int(ItemList[1])
+                    elif TheCommand["Type"] in ["SET_START_PLACE"]:
+                        TheCommand["StartPlace"] = int(ItemList[1])
         except:
             TheCommand = {}
         return TheCommand
@@ -242,6 +253,15 @@ class ServerManager:
         返回：无
         '''
         return self.BufferImageDir + '/' + str(self.Session) + self.BufferImageBack
+
+    def HandleInitLink(self):
+        '''
+        描述：处理InitLink请求，也就是返回session
+        参数：无
+        返回：第一个参数T/F代表是否成功，第二个参数代表消息
+        '''
+
+        return True, "OK"
 
     def HandleSetup(self, TheFileName, TheDataPort):
         '''
@@ -323,15 +343,29 @@ class ServerManager:
         参数：无
         返回：第一个参数T/F代表是否成功，第二个参数代表消息, 第三个参数代表额外的行---返回的视频信息
         '''
+        TheFrameNumber, TheFrameRate, TheFrameWidth, TheFrameHeight = self.GetVideoInfo()
+        TheAdditionalInfo = "\n" + "FrameNumber: " + str(TheFrameNumber) + " FrameRate: " + str(TheFrameRate)\
+        + " FrameWidth: " + str(TheFrameWidth) + " FrameHeight: " + str(TheFrameHeight)
+        return True, "OK", TheAdditionalInfo
+
+    def HandleSetStartPlace(self, TheStartPlace):
+        '''
+        描述：处理setstartplace请求，也就是设置初始传输位置
+        参数：无
+        返回：第一个参数T/F代表是否成功，第二个参数代表消息
+        '''
         if self.RTPStatus == Constants.RTP_TRANSPORT_READY:
-            TheFrameNumber, TheFrameRate = self.GetVideoInfo()
-            TheAdditionalInfo = "\n" + "FrameNumber: " + str(TheFrameNumber) + " FrameRate: " + str(TheFrameRate)
-            return True, "OK", TheAdditionalInfo
+            if TheStartPlace < 0:
+                TheStartPlace = 0
+            if TheStartPlace >= self.TotalFrameNumber:
+                TheStartPlace = self.TotalFrameNumber - 1
+            self.StartPlace = TheStartPlace
+            return True, "OK"
         else:
             if self.RTPStatus == Constants.RTP_TRANSPORT_INIT:
-                return False, Constants.RTP_ERROR_INIT, ""
+                return False, Constants.RTP_ERROR_INIT
             else:
-                return False, Constants.RTP_ERROR_PLAYING, ""
+                return False, Constants.RTP_ERROR_PLAYING
 
     def RTPSend(self):
         '''
@@ -352,13 +386,15 @@ class ServerManager:
         else:
             WhetherRemain = False
 
+        for i in range(self.StartPlace):
+            WhetherRemain, TheFrame = TheVideo.read()
+
         #状态判断等
         if Success == True and WhetherRemain == True:
             while WhetherRemain == True:
-                if self.RTPStatus == Constants.RTP_TRANSPORT_PLAYING:
-                    if self.Valid != True:
+                if self.Valid != True:
                         break
-
+                if self.RTPStatus == Constants.RTP_TRANSPORT_PLAYING:
                     #读取一帧视频,并且GBN发送
                     WhetherRemain = self.CreateBufferImage(TheVideo)
                     if WhetherRemain == False:
@@ -410,16 +446,18 @@ class ServerManager:
 
     def GetVideoInfo(self):
         '''
-        描述：获取视频的帧率和总帧数
+        描述：获取视频的帧率,总帧数,宽度，高度
         参数：无
-        返回：帧数，帧率
+        返回：帧数，帧率，宽度，高度
         '''
         TheVideo = cv2.VideoCapture(self.CurrentFileName)
         TheFrameRate = round(TheVideo.get(cv2.CAP_PROP_FPS))
         TheFrameNumber = round(TheVideo.get(cv2.CAP_PROP_FRAME_COUNT))
+        TheFrameWidth = round(TheVideo.get(cv2.CAP_PROP_FRAME_WIDTH))
+        TheFrameHeight = round(TheVideo.get(cv2.CAP_PROP_FRAME_HEIGHT))
         self.TotalFrameNumber = TheFrameNumber
         self.FrameRate = TheFrameRate
-        return TheFrameNumber, TheFrameRate
+        return TheFrameNumber, TheFrameRate, TheFrameWidth, TheFrameHeight
 
     #关于GBN发送的函数
     def SendOnePictureGBN(self):

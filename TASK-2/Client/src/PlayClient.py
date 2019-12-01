@@ -18,10 +18,10 @@ class PlayClient:
 	'''
 	
 	#初始化系列函数
-	def __init__(self, master, TheServerIP, TheServerPort, TheFileName):
+	def __init__(self, master, TheServerIP, TheServerPort, TheFileName, TheStartPlace):
 		'''
         描述：初始化RTP客户端
-        参数：父控件，服务器的IP和端口，文件名
+        参数：父控件，服务器的IP和端口，文件名,开始播放的位置
         返回：无
 		'''
 		#图形界面相关
@@ -45,8 +45,8 @@ class PlayClient:
 		#控制，数据连接顺序码和数据连接的帧
 		self.ControlSequence = 0
 		self.DataSequence = 0
-		self.PictureFrame = 0
-		self.PicturePlay = 0
+		self.PictureFrame = TheStartPlace
+		self.PicturePlay = TheStartPlace
 
 		#视频信息--总帧数，缓冲区时间，帧率
 		self.PicturePerSecond = Constants.UNDEFINED_NUMBER
@@ -65,11 +65,18 @@ class PlayClient:
 		#播放速率
 		self.CurrentPlaySpeed = 1
 
+		#初始的播放位置
+		self.StartPlace = TheStartPlace
+
+		#大小信息--长，宽
+		self.PictureWidth = Constants.UNDEFINED_NUMBER
+		self.PictureHeight = Constants.UNDEFINED_NUMBER
+
 		#初始化操作：初始化控件，初始化目录，连接服务器,开始播放
 		self.CreateWidgets()
 		self.InitDir()
 		self.ConnectToServer()
-		self.SetupMovie()
+		self.InitLink()
 		
 	def InitDir(self):
 		'''
@@ -91,17 +98,24 @@ class PlayClient:
 		self.Pause = Button(self.master, width = 20, padx = 3, pady = 3)
 		self.Pause["text"] = "Pause"
 		self.Pause["command"] = self.PauseMovie
-		self.Pause.grid(row = 3, column = 0, padx = 2, pady = 2)
+		self.Pause.grid(row = 4, column = 0, padx = 2, pady = 2)
 		
 		#Teardown按钮
 		self.Teardown = Button(self.master, width = 20, padx = 3, pady = 3)
 		self.Teardown["text"] = "Teardown"
 		self.Teardown["command"] =  self.ExitClient
-		self.Teardown.grid(row = 3, column = 1, padx = 2, pady = 2)
+		self.Teardown.grid(row = 4, column = 1, padx = 2, pady = 2)
 		
 		#图片显示
 		self.Movie = Label(self.master)
-		self.Movie.grid(row = 0, column = 0, columnspan = 4, sticky = W + E + N + S, padx = 5, pady = 5) 
+		self.Movie.grid(row = 0, column = 0, sticky = W + N, padx = 0, pady = 0) 
+
+		self.SubtitleMaster = Label(self.master)
+		self.SubtitleMaster.grid(row = 1, column = 0, columnspan = 4, sticky = W + N, padx = 0, pady = 0) 
+
+		self.Subtitle = Label(self.SubtitleMaster)
+		self.Subtitle.grid(row = 0, column = 0)
+
 
 		#播放速率选择
 		self.CreateChoiceButtons()
@@ -116,14 +130,14 @@ class PlayClient:
 		#播放速率列表
 		self.PlaySpeedList = [(0.5, 0), (0.75, 1), (1, 2), (1.25, 3), (1.5, 4), (2, 5)]
 		self.ChoiceShow = Label(self.master, text='选择播放速率')
-		self.ChoiceShow.grid(row = 2, column = 2, padx = 2, pady = 2)
+		self.ChoiceShow.grid(row = 3, column = 2, padx = 2, pady = 2)
  
 		#for循环创建单选框
 		self.ChoiceButtonList = []
 		for Speed, Num in self.PlaySpeedList:
 			TheRadioButton = Radiobutton(self.master, text = "X" + str(Speed), value = Num, command = self.ChangePlaySpeed\
 			, variable = self.IntVarChoiceValue)
-			TheRadioButton.grid(row = 3 + Num, column = 2, padx = 1, pady = 0)
+			TheRadioButton.grid(row = 4 + Num, column = 2, padx = 1, pady = 0)
 			self.ChoiceButtonList.append(TheRadioButton)
 		#设置初始值
 		self.IntVarChoiceValue.set(2)
@@ -137,17 +151,22 @@ class PlayClient:
 		'''
 		#播放进度条
 		self.ScalerValueMax = round(self.TotalFrameNumber / self.PicturePerSecond)
-		TheLabel = "0:00:00/" + self.GetPlayTime(self.TotalFrameNumber)
+		TheLabel = self.GetPlayTime(self.StartPlace) + '/' + self.GetPlayTime(self.TotalFrameNumber)
+
 
 		#进度条时间
 		self.ProgressShow = Label(self.master, width = 20)
-		self.ProgressShow.grid(row = 1, column = 1, padx = 2, pady = 2)
+		self.ProgressShow.grid(row = 2, column = 1, padx = 2, pady = 2)
 		self.ProgressShow.configure(text = TheLabel)
 
 		#进度条本身
 		self.Scaler = Scale(self.master, label = '', from_ = 0, to = self.ScalerValueMax, orient = HORIZONTAL,
              length = 800, showvalue = 0, resolution = 1, command = self.ChangeScaler)
-		self.Scaler.grid(row = 2, column = 0, padx = 2, pady = 2)
+		self.Scaler.grid(row = 3, column = 0, padx = 2, pady = 2)
+
+		#初始值设置
+		CurrentProcess = round(self.StartPlace / self.TotalFrameNumber * self.ScalerValueMax) 
+		self.Scaler.set(CurrentProcess)
 
 	#网络连接相关操作，包括数据端口连接服务器，控制端口开启等
 	def ConnectToServer(self):
@@ -176,6 +195,15 @@ class PlayClient:
 			MessageBox.showwarning('Unable to Bind', 'Unable to bind the data link at PORT = %d' %self.DataPort)
 
 	#绑定按钮和事件处理相关操作，包括SETUP，PLAY，PAUSE，RESUME，TEARDOWN, GETPARAMETER，修改进度条，修改倍速，全屏
+	def InitLink(self):
+		'''
+		描述：InitLink操作
+        参数：无
+        返回：无
+		'''	
+		if self.Status == Constants.RTP_TRANSPORT_INIT:
+			self.SendControlRequest("INIT_LINK")
+
 	def SetupMovie(self):
 		'''
 		描述：Setup操作
@@ -256,6 +284,15 @@ class PlayClient:
 		if self.Status == Constants.RTP_TRANSPORT_READY:
 			self.SendControlRequest("GET_PARAMETER")
 
+	def SetStartPlace(self):
+		'''
+		描述：SetStartPlace操作
+        参数：无
+        返回：无
+		'''	
+		if self.Status == Constants.RTP_TRANSPORT_READY:
+			self.SendControlRequest("SET_START_PLACE")
+
 	def ChangeScaler(self, TheScalePlace):
 		'''
 		描述：滚动条变化事件
@@ -290,21 +327,37 @@ class PlayClient:
         参数：请求类型
         返回：无
 		'''	
-		if TheRequestType == "SETUP" and self.Status == Constants.RTP_TRANSPORT_INIT:
+		if TheRequestType == "INIT_LINK" and self.Status == Constants.RTP_TRANSPORT_INIT:
 			threading.Thread(target = self.ReceiveControlReply).start()
+			self.ControlSequence += 1
+			
+			TheRequest = 'INIT_LINK ' + self.FileName + ' RTSP/1.0\n' \
+			+ 'CSeq: ' + str(self.ControlSequence)
+			self.RequestSent = "INIT_LINK"
+
+		elif TheRequestType == "SETUP" and self.Status == Constants.RTP_TRANSPORT_INIT:
 			self.ControlSequence += 1
 			
 			TheRequest = 'SETUP ' + self.FileName + ' RTSP/1.0\n' \
 			+ 'CSeq: ' + str(self.ControlSequence) + \
+			'\nSession: ' + str(self.Session) + \
 			'\nTransport: RTP/UDP; client_port= ' + str(self.DataPort)
 			self.RequestSent = "SETUP"
 		
-		elif TheRequestType == "GET_PARAMETER" and self.Status == Constants.RTP_TRANSPORT_READY:
+		elif TheRequestType == "GET_PARAMETER":
 			self.ControlSequence += 1
 			TheRequest = 'GET_PARAMETER ' + self.FileName + ' RTSP/1.0\n' \
 			+ 'CSeq: ' + str(self.ControlSequence) \
 			+ '\nSession: ' + str(self.Session)
 			self.RequestSent = "GET_PARAMETER"
+
+		elif TheRequestType == "SET_START_PLACE" and self.Status == Constants.RTP_TRANSPORT_READY:
+			self.ControlSequence += 1
+			TheRequest = 'SET_START_PLACE ' + self.FileName + ' RTSP/1.0\n' \
+			+ 'CSeq: ' + str(self.ControlSequence) \
+			+ '\nSession: ' + str(self.Session) \
+			+ '\nStartPlace: ' + str(self.StartPlace)
+			self.RequestSent = "SET_START_PLACE"
 
 		elif TheRequestType == "PLAY" and self.Status == Constants.RTP_TRANSPORT_READY:
 			self.ControlSequence += 1
@@ -381,12 +434,16 @@ class PlayClient:
 			# Process only if the session ID is the same
 			if self.Session == TheSession:
 				if int(Lines[0].split()[1]) == Constants.STATUS_CODE_SUCCESS: 
-					if self.RequestSent == "SETUP":
+					if self.RequestSent == "INIT_LINK":
+						self.SetupMovie()
+					elif self.RequestSent == "SETUP":
 						self.Status = Constants.RTP_TRANSPORT_READY
 						self.OpenDataPort()
 						self.GetVideoParameter()
 					elif self.RequestSent == "GET_PARAMETER":
 						self.SetVideoParameter(str(TheReply))
+						self.SetStartPlace()
+					elif self.RequestSent == "SET_START_PLACE":
 						self.CreateScaler()
 						self.PlayMovie()
 					elif self.RequestSent == "PLAY":
@@ -507,7 +564,10 @@ class PlayClient:
 		ThePhoto = ImageTk.PhotoImage(Image.open(TheImageFileName))
 		self.Movie.configure(image = ThePhoto, height = 800) 
 		self.Movie.image = ThePhoto
-		
+
+		#字幕显示
+		self.Subtitle["text"] = "这是第" + str(self.PicturePlay) + "张图片"
+
 	def UpdateScalerAndProcessWhenPlay(self):
 		'''
 		描述：在播放中动态更新进度条和播放时间显示
@@ -561,8 +621,12 @@ class PlayClient:
 		#print(Lines[-1].split())
 		TheFrameNumber = int(Lines[3].split()[1])
 		TheFrameRate = int(Lines[3].split()[3])
+		TheFrameWidth = int(Lines[3].split()[5])
+		TheFrameHeight = int(Lines[3].split()[7])
 		self.TotalFrameNumber = TheFrameNumber
 		self.PicturePerSecond = TheFrameRate
+		self.PictureWidth = TheFrameWidth
+		self.PictureHeight = TheFrameHeight
 	
 	def GetPlayTime(self, TheFrameNumber):
 		'''
@@ -579,5 +643,5 @@ class PlayClient:
 
 if __name__ == "__main__":
 	Root = Tk()
-	TheClient = PlayClient(Root, Constants.SERVER_ADDR, Constants.SERVER_CONTROL_PORT, "test.mp4")
+	TheClient = PlayClient(Root, Constants.SERVER_ADDR, Constants.SERVER_CONTROL_PORT, "test.mp4", 1000)
 	Root.mainloop()
