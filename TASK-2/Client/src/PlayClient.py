@@ -18,7 +18,7 @@ class PlayClient:
 	'''
 	
 	#初始化系列函数
-	def __init__(self, master, TheServerIP, TheServerPort, TheFileName, TheStartPlace):
+	def __init__(self, master, TheServerIP, TheServerPort, TheFileName, TheStartPlace, TheSession):
 		'''
         描述：初始化RTP客户端
         参数：父控件，服务器的IP和端口，文件名,开始播放的位置
@@ -37,7 +37,7 @@ class PlayClient:
 		self.DataSocket = None
 
 		#控制相关，包括Session，状态等
-		self.Session = Constants.UNDEFINED_NUMBER
+		self.Session = TheSession
 		self.RequestSent = ""
 		self.Valid = True
 		self.Status = Constants.RTP_TRANSPORT_INIT
@@ -68,15 +68,22 @@ class PlayClient:
 		#初始的播放位置
 		self.StartPlace = TheStartPlace
 
-		#大小信息--长，宽
+		#当前大小信息--长，宽
 		self.PictureWidth = Constants.UNDEFINED_NUMBER
 		self.PictureHeight = Constants.UNDEFINED_NUMBER
+		self.PictureWidthOriginal = Constants.UNDEFINED_NUMBER
+		self.PictureHeightOriginal = Constants.UNDEFINED_NUMBER
+		self.PictureWidthFull = Constants.WINDOW_WIDTH
+		self.PictureHeightFull = Constants.WINDOW_HEIGHT
+		
+		#是否全屏
+		self.WhetherFullScreen = False
 
 		#初始化操作：初始化控件，初始化目录，连接服务器,开始播放
-		self.CreateWidgets()
+		#self.CreateWidgets()
 		self.InitDir()
 		self.ConnectToServer()
-		self.InitLink()
+		self.SetupMovie()
 		
 	def InitDir(self):
 		'''
@@ -90,36 +97,30 @@ class PlayClient:
 
 	def CreateWidgets(self):
 		'''
-		描述：初始化RTP客户端
+		描述：初始化RTP客户端的控件
         参数：无
         返回：无
 		'''
+		self.master.bind("<Configure>", self.ChangeScreen)
+		#图片显示
+		self.Movie = Label(self.master)
+		#字幕显示
+		self.Subtitle = Label(self.master)
 		#暂停/继续按钮		
 		self.Pause = Button(self.master, width = 20, padx = 3, pady = 3)
 		self.Pause["text"] = "Pause"
 		self.Pause["command"] = self.PauseMovie
-		self.Pause.grid(row = 4, column = 0, padx = 2, pady = 2)
-		
-		#Teardown按钮
-		self.Teardown = Button(self.master, width = 20, padx = 3, pady = 3)
-		self.Teardown["text"] = "Teardown"
-		self.Teardown["command"] =  self.ExitClient
-		self.Teardown.grid(row = 4, column = 1, padx = 2, pady = 2)
-		
-		#图片显示
-		self.Movie = Label(self.master)
-		self.Movie.grid(row = 0, column = 0, sticky = W + N, padx = 0, pady = 0) 
-
-		self.SubtitleMaster = Label(self.master)
-		self.SubtitleMaster.grid(row = 1, column = 0, columnspan = 4, sticky = W + N, padx = 0, pady = 0) 
-
-		self.Subtitle = Label(self.SubtitleMaster)
-		self.Subtitle.grid(row = 0, column = 0)
-
-
-		#播放速率选择
+		#全屏按钮
+		#self.FullScreen = Button(self.master, width = 20, padx = 3, pady = 3)
+		#self.FullScreen["text"] = "FullScreen"
+		#self.FullScreen["command"] = self.ChangeToFullScreen
+		#播放速率选择按钮
 		self.CreateChoiceButtons()
-	
+		#进度条和时间显示
+		self.CreateScaler()
+		#初始化控件位置
+		self.SetWidgetPlace()
+
 	def CreateChoiceButtons(self):
 		'''
 		描述：初始化播放速率选择控件
@@ -129,19 +130,14 @@ class PlayClient:
 		self.IntVarChoiceValue = IntVar()
 		#播放速率列表
 		self.PlaySpeedList = [(0.5, 0), (0.75, 1), (1, 2), (1.25, 3), (1.5, 4), (2, 5)]
-		self.ChoiceShow = Label(self.master, text='选择播放速率')
-		self.ChoiceShow.grid(row = 3, column = 2, padx = 2, pady = 2)
- 
 		#for循环创建单选框
 		self.ChoiceButtonList = []
 		for Speed, Num in self.PlaySpeedList:
 			TheRadioButton = Radiobutton(self.master, text = "X" + str(Speed), value = Num, command = self.ChangePlaySpeed\
 			, variable = self.IntVarChoiceValue)
-			TheRadioButton.grid(row = 4 + Num, column = 2, padx = 1, pady = 0)
 			self.ChoiceButtonList.append(TheRadioButton)
 		#设置初始值
 		self.IntVarChoiceValue.set(2)
-
 
 	def CreateScaler(self):
 		'''
@@ -152,21 +148,33 @@ class PlayClient:
 		#播放进度条
 		self.ScalerValueMax = round(self.TotalFrameNumber / self.PicturePerSecond)
 		TheLabel = self.GetPlayTime(self.StartPlace) + '/' + self.GetPlayTime(self.TotalFrameNumber)
-
-
 		#进度条时间
 		self.ProgressShow = Label(self.master, width = 20)
-		self.ProgressShow.grid(row = 2, column = 1, padx = 2, pady = 2)
 		self.ProgressShow.configure(text = TheLabel)
-
 		#进度条本身
 		self.Scaler = Scale(self.master, label = '', from_ = 0, to = self.ScalerValueMax, orient = HORIZONTAL,
-             length = 800, showvalue = 0, resolution = 1, command = self.ChangeScaler)
-		self.Scaler.grid(row = 3, column = 0, padx = 2, pady = 2)
-
+             length = self.PictureWidth - 120, showvalue = 0, resolution = 1, command = self.ChangeScaler)
 		#初始值设置
 		CurrentProcess = round(self.StartPlace / self.TotalFrameNumber * self.ScalerValueMax) 
 		self.Scaler.set(CurrentProcess)
+
+	def SetWidgetPlace(self):
+		'''
+		描述：设置控件位置
+        参数：无
+        返回：无
+		'''
+		print(self.PictureWidth, self.PictureHeight)
+		self.master.geometry(str(self.PictureWidth) + "x" + str(self.PictureHeight + 120))
+		self.Movie.place(x = 0, y = 0, anchor = NW)
+		self.Subtitle.place(x = self.PictureWidth / 2, y = self.PictureHeight + 10, anchor = N)
+		self.Pause.place(x = self.PictureWidth / 2, y = self.PictureHeight + 80, anchor = N)
+		self.ProgressShow.place(x = 10, y = self.PictureHeight + 30, anchor = NW)
+		#self.FullScreen.place(x = self.PictureWidth - 200, y = self.PictureHeight + 80, anchor = N)
+		self.Scaler.place(x = 10, y = self.PictureHeight + 50, anchor = NW)
+		for i in range(len(self.ChoiceButtonList)):
+			self.ChoiceButtonList[i].place(x = self.PictureWidth - 100, y = self.PictureHeight + 10 + 18 * i, anchor = NW)
+
 
 	#网络连接相关操作，包括数据端口连接服务器，控制端口开启等
 	def ConnectToServer(self):
@@ -195,14 +203,6 @@ class PlayClient:
 			MessageBox.showwarning('Unable to Bind', 'Unable to bind the data link at PORT = %d' %self.DataPort)
 
 	#绑定按钮和事件处理相关操作，包括SETUP，PLAY，PAUSE，RESUME，TEARDOWN, GETPARAMETER，修改进度条，修改倍速，全屏
-	def InitLink(self):
-		'''
-		描述：InitLink操作
-        参数：无
-        返回：无
-		'''	
-		if self.Status == Constants.RTP_TRANSPORT_INIT:
-			self.SendControlRequest("INIT_LINK")
 
 	def SetupMovie(self):
 		'''
@@ -221,16 +221,14 @@ class PlayClient:
 		'''	
 		self.SendControlRequest("TEARDOWN")		
 		self.master.destroy() 
-		try:
+		
+		'''try:
 			#os.chdir(self.CacheDirPicture)
 			for i in range(self.PictureFrame):
 				TheCacheName = self.GetPictureCacheFileName(i + 1)
-				os.remove(TheCacheName) 
-			for i in range(self.AudioFrame):
-				TheCacheName = self.GetAudioCacheFileName(i + 1)
-				os.remove(TheCacheName) 
+				os.remove(TheCacheName)  
 		except:
-			donothing = True
+			donothing = True'''
 
 	def QuitByHandler(self):
 		'''
@@ -327,17 +325,10 @@ class PlayClient:
         参数：请求类型
         返回：无
 		'''	
-		if TheRequestType == "INIT_LINK" and self.Status == Constants.RTP_TRANSPORT_INIT:
+		if TheRequestType == "SETUP" and self.Status == Constants.RTP_TRANSPORT_INIT:
+			self.ControlSequence += 1
 			threading.Thread(target = self.ReceiveControlReply).start()
-			self.ControlSequence += 1
-			
-			TheRequest = 'INIT_LINK ' + self.FileName + ' RTSP/1.0\n' \
-			+ 'CSeq: ' + str(self.ControlSequence)
-			self.RequestSent = "INIT_LINK"
 
-		elif TheRequestType == "SETUP" and self.Status == Constants.RTP_TRANSPORT_INIT:
-			self.ControlSequence += 1
-			
 			TheRequest = 'SETUP ' + self.FileName + ' RTSP/1.0\n' \
 			+ 'CSeq: ' + str(self.ControlSequence) + \
 			'\nSession: ' + str(self.Session) + \
@@ -434,17 +425,15 @@ class PlayClient:
 			# Process only if the session ID is the same
 			if self.Session == TheSession:
 				if int(Lines[0].split()[1]) == Constants.STATUS_CODE_SUCCESS: 
-					if self.RequestSent == "INIT_LINK":
-						self.SetupMovie()
-					elif self.RequestSent == "SETUP":
+					if self.RequestSent == "SETUP":
 						self.Status = Constants.RTP_TRANSPORT_READY
 						self.OpenDataPort()
 						self.GetVideoParameter()
 					elif self.RequestSent == "GET_PARAMETER":
 						self.SetVideoParameter(str(TheReply))
+						self.CreateWidgets()
 						self.SetStartPlace()
 					elif self.RequestSent == "SET_START_PLACE":
-						self.CreateScaler()
 						self.PlayMovie()
 					elif self.RequestSent == "PLAY":
 						self.Status = Constants.RTP_TRANSPORT_PLAYING
@@ -553,7 +542,13 @@ class PlayClient:
 
 			#更新进度条和时间显示
 			self.UpdateScalerAndProcessWhenPlay()	
-			time.sleep(1 / self.PicturePerSecond / self.CurrentPlaySpeed)
+
+			#平衡opencv运算带来的延迟问题
+			if self.WhetherFullScreen == True:
+				time.sleep(1 / self.PicturePerSecond / self.CurrentPlaySpeed/ 1.5)
+			else:
+				time.sleep(1 / self.PicturePerSecond / self.CurrentPlaySpeed)
+
 
 	def UpdatePictureShow(self, TheImageFileName):
 		'''
@@ -561,9 +556,12 @@ class PlayClient:
         参数：文件名
         返回：无
 		'''	
-		ThePhoto = ImageTk.PhotoImage(Image.open(TheImageFileName))
-		self.Movie.configure(image = ThePhoto, height = 800) 
-		self.Movie.image = ThePhoto
+		ThePhoto = Image.open(TheImageFileName)
+		if self.WhetherFullScreen == True:
+			ThePhoto = ThePhoto.resize((self.PictureWidthFull, self.PictureHeightFull))
+		ThePhotoShow = ImageTk.PhotoImage(ThePhoto)
+		self.Movie.configure(image = ThePhotoShow) 
+		self.Movie.image = ThePhotoShow
 
 		#字幕显示
 		self.Subtitle["text"] = "这是第" + str(self.PicturePlay) + "张图片"
@@ -589,6 +587,64 @@ class PlayClient:
 		'''	
 		CurrentLabelShow = self.GetPlayTime(self.PicturePlay) + '/' + self.GetPlayTime(self.TotalFrameNumber)
 		self.ProgressShow.configure(text = CurrentLabelShow)
+
+	#设置全屏和退出全屏
+	def ChangeScreen(self, event):
+		'''
+		描述：处理进入和退出全屏事件
+        参数：无
+        返回：无
+		'''	
+		if self.WhetherFullScreen != True and \
+		event.width == self.PictureWidthFull and event.height == self.PictureHeightFull:
+			#进入全屏
+			print("in")
+			self.WhetherFullScreen = True
+			self.PictureWidth = self.PictureWidthFull
+			self.PictureHeight = self.PictureHeightFull
+			self.SetWidgetPlace()
+			time.sleep(0.01)
+			return
+		if self.WhetherFullScreen == True and \
+		(event.width < self.PictureWidthFull or event.height < self.PictureHeightFull):
+			#退出全屏
+			print("out")
+			self.WhetherFullScreen = False
+			self.PictureWidth = self.PictureWidthOriginal
+			self.PictureHeight = self.PictureHeightOriginal
+			self.SetWidgetPlace()
+			time.sleep(0.01)
+			return
+
+	#设置全屏和退出全屏
+	def ChangeToFullScreen(self):
+		'''
+		描述：处理进入全屏事件
+        参数：无
+        返回：无
+		'''	
+		if self.WhetherFullScreen != True:
+			#进入全屏
+			print("in")
+			self.WhetherFullScreen = True
+			self.PictureWidth = self.PictureWidthFull
+			self.PictureHeight = self.PictureHeightFull
+			self.SetWidgetPlace()
+
+	def QuitFullScreen(self, event):
+		'''
+		描述：处理退出全屏事件
+        参数：无
+        返回：无
+		'''	
+		if self.WhetherFullScreen == True:
+			#退出全屏
+			print("out")
+			self.WhetherFullScreen = False
+			self.PictureWidth = self.PictureWidthOriginal
+			self.PictureHeight = self.PictureHeightOriginal
+			self.SetWidgetPlace()
+
 
 	#基本操作函数，比如随机生成端口，生成完整文件名
 	def GenerateRandomPort(self):	
@@ -625,9 +681,11 @@ class PlayClient:
 		TheFrameHeight = int(Lines[3].split()[7])
 		self.TotalFrameNumber = TheFrameNumber
 		self.PicturePerSecond = TheFrameRate
+		self.PictureWidthOriginal = TheFrameWidth
+		self.PictureHeightOriginal = TheFrameHeight
 		self.PictureWidth = TheFrameWidth
 		self.PictureHeight = TheFrameHeight
-	
+
 	def GetPlayTime(self, TheFrameNumber):
 		'''
 		描述：根据播放帧数计算播放时间
@@ -641,7 +699,8 @@ class PlayClient:
 		TheString = str(TheHour) + ":" + str(TheMinute).zfill(2) + ":" + str(TheSecond).zfill(2)
 		return TheString
 
+
 if __name__ == "__main__":
 	Root = Tk()
-	TheClient = PlayClient(Root, Constants.SERVER_ADDR, Constants.SERVER_CONTROL_PORT, "test.mp4", 1000)
+	TheClient = PlayClient(Root, Constants.SERVER_ADDR, Constants.SERVER_CONTROL_PORT, "test.mp4", 0, 114514)
 	Root.mainloop()

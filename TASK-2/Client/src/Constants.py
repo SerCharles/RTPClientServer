@@ -55,3 +55,7 @@ class Constants:
     #GBN窗口大小
     GBN_WINDOW_SIZE = 1
     TIMEOUT_TIME = 4
+
+    #全屏窗口大小
+    WINDOW_WIDTH = 1855
+    WINDOW_HEIGHT = 1056

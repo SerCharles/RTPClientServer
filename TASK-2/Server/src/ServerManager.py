@@ -123,18 +123,16 @@ class ServerManager:
             TheAdditionalInfo = ""
 
             #验证session
-            if TheCommand["Type"] != "INIT_LINK":
-                if "Session" in TheCommand:
-                    TheSession = TheCommand["Session"]
-                    if TheSession != self.Session:
-                        Success = False
-                        TheMessage = "Invalid Session!"
-                else:
+            if "Session" in TheCommand:
+                TheSession = TheCommand["Session"]
+                if self.Session == Constants.UNDEFINED_NUMBER:
+                    self.Session = TheSession
+                if TheSession != self.Session:
                     Success = False
-                    TheMessage = "Invalid Session!"   
+                    TheMessage = "Invalid Session!"
             else:
-                TheSession = self.GenerateSession()
-                self.Session = TheSession
+                Success = False
+                TheMessage = "Invalid Session!"   
 
             #验证seq
             if TheSequence == self.ControlSequence + 1:
@@ -146,9 +144,7 @@ class ServerManager:
             if "FileName" in TheCommand:
                 TheFileName = TheCommand["FileName"]
             if Success:
-                if TheCommand["Type"] == "INIT_LINK":
-                    Success, TheMessage = self.HandleInitLink()
-                elif TheCommand["Type"] == "SETUP":
+                if TheCommand["Type"] == "SETUP":
                     Success, TheMessage = self.HandleSetup(TheFileName, TheCommand["Port"])
                 elif TheCommand["Type"] == "PLAY":
                     Success, TheMessage = self.HandlePlay()
@@ -191,7 +187,7 @@ class ServerManager:
                 elif i == 1:
                     TheCommand["Sequence"] = int(ItemList[1])
                 elif i == 2:
-                    if TheCommand["Type"] in ["SETUP","PLAY", "PAUSE", "RESUME", "TEARDOWN", "GET_PARAMETER", "SET_START_PLACE"]:
+                    if TheCommand["Type"] in ["SETUP", "PLAY", "PAUSE", "RESUME", "TEARDOWN", "GET_PARAMETER", "SET_START_PLACE"]:
                         TheCommand["Session"] = int(ItemList[1])
                 elif i == 3:
                     if TheCommand["Type"] in ["SETUP"]:
@@ -253,15 +249,6 @@ class ServerManager:
         返回：无
         '''
         return self.BufferImageDir + '/' + str(self.Session) + self.BufferImageBack
-
-    def HandleInitLink(self):
-        '''
-        描述：处理InitLink请求，也就是返回session
-        参数：无
-        返回：第一个参数T/F代表是否成功，第二个参数代表消息
-        '''
-
-        return True, "OK"
 
     def HandleSetup(self, TheFileName, TheDataPort):
         '''
