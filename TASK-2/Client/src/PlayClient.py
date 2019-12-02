@@ -1,4 +1,5 @@
 from tkinter import *
+import tkinter.font as TKFont
 import tkinter.messagebox as MessageBox
 from PIL import Image, ImageTk
 from PIL import ImageFile
@@ -58,6 +59,7 @@ class PlayClient:
 		self.CacheDirPicture = "CachePicture"
 		self.CacheFront = "Cache_"
 		self.PictureBack = ".jpg"
+		self.SubtitleBack = ".srt"
 
 		#进度条信息
 		self.ScalerValueMax = Constants.UNDEFINED_NUMBER
@@ -79,6 +81,11 @@ class PlayClient:
 		#是否全屏
 		self.WhetherFullScreen = False
 
+		#字幕用数据
+		self.WhetherHasSubtitle = True
+		self.SubtitleList = []
+		#每个元素：起始帧，结束帧，字幕内容
+
 		#初始化操作：初始化控件，初始化目录，连接服务器,开始播放
 		#self.CreateWidgets()
 		self.InitDir()
@@ -93,6 +100,9 @@ class PlayClient:
         '''		
 		if os.path.exists(self.CacheDirPicture) == False:
 			os.mkdir(self.CacheDirPicture)
+		if os.path.exists(self.CacheDirPicture + '/' + str(self.Session)) == False:
+			os.mkdir(self.CacheDirPicture + '/' + str(self.Session))
+
 		return
 
 	def CreateWidgets(self):
@@ -105,15 +115,12 @@ class PlayClient:
 		#图片显示
 		self.Movie = Label(self.master)
 		#字幕显示
-		self.Subtitle = Label(self.master)
+		self.Subtitle = Label(self.master, font = ("Times", 20), justify = "center")
 		#暂停/继续按钮		
 		self.Pause = Button(self.master, width = 20, padx = 3, pady = 3)
 		self.Pause["text"] = "Pause"
 		self.Pause["command"] = self.PauseMovie
-		#全屏按钮
-		#self.FullScreen = Button(self.master, width = 20, padx = 3, pady = 3)
-		#self.FullScreen["text"] = "FullScreen"
-		#self.FullScreen["command"] = self.ChangeToFullScreen
+
 		#播放速率选择按钮
 		self.CreateChoiceButtons()
 		#进度条和时间显示
@@ -167,7 +174,7 @@ class PlayClient:
 		print(self.PictureWidth, self.PictureHeight)
 		self.master.geometry(str(self.PictureWidth) + "x" + str(self.PictureHeight + 120))
 		self.Movie.place(x = 0, y = 0, anchor = NW)
-		self.Subtitle.place(x = self.PictureWidth / 2, y = self.PictureHeight + 10, anchor = N)
+		self.Subtitle.place(x = self.PictureWidth / 2, y = self.PictureHeight * 0.9, anchor = N)
 		self.Pause.place(x = self.PictureWidth / 2, y = self.PictureHeight + 80, anchor = N)
 		self.ProgressShow.place(x = 10, y = self.PictureHeight + 30, anchor = NW)
 		#self.FullScreen.place(x = self.PictureWidth - 200, y = self.PictureHeight + 80, anchor = N)
@@ -431,6 +438,7 @@ class PlayClient:
 						self.GetVideoParameter()
 					elif self.RequestSent == "GET_PARAMETER":
 						self.SetVideoParameter(str(TheReply))
+						self.ParseSubtitle()
 						self.CreateWidgets()
 						self.SetStartPlace()
 					elif self.RequestSent == "SET_START_PLACE":
@@ -564,7 +572,22 @@ class PlayClient:
 		self.Movie.image = ThePhotoShow
 
 		#字幕显示
-		self.Subtitle["text"] = "这是第" + str(self.PicturePlay) + "张图片"
+		self.Subtitle["text"] = self.UpdateSubtitle()
+		#self.Subtitle.configure(self.UpdateSubtitle())
+
+	def UpdateSubtitle(self):
+		'''
+		描述：更新字幕显示
+        参数：无
+        返回：字幕
+		'''	
+		TheShow = ""
+		for item in self.SubtitleList:
+			if self.PicturePlay >= item["Start"] and self.PicturePlay <= item["End"]:
+				TheShow = item["Content"]
+				break
+		return TheShow
+		
 
 	def UpdateScalerAndProcessWhenPlay(self):
 		'''
@@ -616,36 +639,6 @@ class PlayClient:
 			time.sleep(0.01)
 			return
 
-	#设置全屏和退出全屏
-	def ChangeToFullScreen(self):
-		'''
-		描述：处理进入全屏事件
-        参数：无
-        返回：无
-		'''	
-		if self.WhetherFullScreen != True:
-			#进入全屏
-			print("in")
-			self.WhetherFullScreen = True
-			self.PictureWidth = self.PictureWidthFull
-			self.PictureHeight = self.PictureHeightFull
-			self.SetWidgetPlace()
-
-	def QuitFullScreen(self, event):
-		'''
-		描述：处理退出全屏事件
-        参数：无
-        返回：无
-		'''	
-		if self.WhetherFullScreen == True:
-			#退出全屏
-			print("out")
-			self.WhetherFullScreen = False
-			self.PictureWidth = self.PictureWidthOriginal
-			self.PictureHeight = self.PictureHeightOriginal
-			self.SetWidgetPlace()
-
-
 	#基本操作函数，比如随机生成端口，生成完整文件名
 	def GenerateRandomPort(self):	
 		'''
@@ -662,10 +655,18 @@ class PlayClient:
 		参数：序列号
 		返回：文件名
         '''
-		TheFileName = self.CacheDirPicture + '/' + self.CacheFront + str(self.Session)\
+		TheFileName = self.CacheDirPicture + '/' + str(self.Session) + '/' + self.CacheFront + self.FileName\
 		 + '_' + str(TheSequenceNum) + self.PictureBack
 		return TheFileName
 	
+	def GetSubtitleFileName(self):
+		'''
+		描述：根据视频文件名获取字幕文件名
+		参数：无
+		返回：文件名
+        '''
+		return self.FileName[:-4] + self.SubtitleBack
+
 	def SetVideoParameter(self, TheReply):
 		'''
 		描述：获取视频的总长度，帧率信息，用于设置自身属性
@@ -699,8 +700,118 @@ class PlayClient:
 		TheString = str(TheHour) + ":" + str(TheMinute).zfill(2) + ":" + str(TheSecond).zfill(2)
 		return TheString
 
+	#解析字幕对应函数
+	def GetSubtitleFrame(self, TheTime):
+		'''
+		描述：根据字幕时间读取字幕帧数
+		参数：时间字符串
+		返回：对应帧数
+        '''
+		#print(TheTime)
+		TheHour = int(TheTime[0:2])
+		TheMinute = int(TheTime[3:5])
+		TheSecond = int(TheTime[6:8])
+		TheMili = int(TheTime[9:12])
+		TheSecondNum = TheSecond + 60 * TheMinute + 3600 * TheHour + 0.001 * TheMili
+		#print(self.PicturePerSecond, TheSecondNum)
+		TheFrame = round(self.PicturePerSecond * TheSecondNum)
+		#print(TheFrame)
+		return TheFrame
+
+	def ParseSubtitleTime(self, TheTime):
+		'''
+		描述：解析字幕时间
+		参数：时间字符串
+		返回：对应开始和结束帧数
+        '''
+		#print(TheTime)
+		TheStartTimeStr = TheTime.split()[0]
+		TheEndTimeStr = TheTime.split()[2]
+		TheStartFrame = self.GetSubtitleFrame(TheStartTimeStr)
+		TheEndFrame = self.GetSubtitleFrame(TheEndTimeStr)
+		return TheStartFrame, TheEndFrame
+
+	def JudgeEmpty(self, TheStr):
+		'''
+		描述：判断字符串是否全空
+		参数：字符串
+		返回：是true不是false
+        '''
+		WhetherEmpty = True
+		for item in TheStr:
+			if item != '\r' and item != '\n' and item != ' ':
+				WhetherEmpty = False
+				break
+		return WhetherEmpty
+
+	def ParseSubtitle(self):
+		'''
+		描述：解析字幕文件
+		参数：无
+		返回：无
+        '''
+		TheSubtitleName = self.GetSubtitleFileName()
+		if self.WhetherHasSubtitle == True:
+			try:
+				File = open(TheSubtitleName, 'r')
+			except:
+				self.WhetherHasSubtitle = False
+				return
+			ContentList = File.read().split('\n')
+			TheTimePlace = Constants.UNDEFINED_NUMBER
+			TheContentStart = Constants.UNDEFINED_NUMBER
+			TheContentEnd = Constants.UNDEFINED_NUMBER
+			for i in range(len(ContentList)):
+				if len(ContentList[i]) != 0:
+					if ContentList[i][-1] == '\r':
+						ContentList[i] = ContentList[i][:-1]
+				try:
+					TheNum = int(ContentList[i])
+					TheTimePlace = i + 1
+					TheContentStart = i + 2
+				except:
+					donothing = True
+				if self.JudgeEmpty(ContentList[i]) == True and\
+				TheTimePlace != Constants.UNDEFINED_NUMBER and TheContentStart != Constants.UNDEFINED_NUMBER:
+					TheContentEnd = i - 1
+					TheStartFrame, TheEndFrame = self.ParseSubtitleTime(ContentList[TheTimePlace])
+					j = TheContentStart
+					TheContent = ""
+					while j <= TheContentEnd:
+						TheContent = TheContent + ContentList[j]
+						if j != TheContentEnd:
+							TheContent = TheContent + '\n'
+						j = j + 1
+					TheInfo = {}
+					TheInfo["Start"] = TheStartFrame
+					TheInfo["End"] = TheEndFrame
+					TheInfo["Content"] = TheContent
+					self.SubtitleList.append(TheInfo)
+					TheTimePlace = Constants.UNDEFINED_NUMBER
+					TheContentStart = Constants.UNDEFINED_NUMBER
+					TheContentEnd = Constants.UNDEFINED_NUMBER
+				elif i == len(ContentList) - 1 and self.JudgeEmpty(ContentList[i]) != True and\
+				TheTimePlace != Constants.UNDEFINED_NUMBER and TheContentStart != Constants.UNDEFINED_NUMBER:
+					TheContentEnd = i
+					TheStartFrame, TheEndFrame = self.ParseSubtitleTime(ContentList[TheTimePlace])
+					j = TheContentStart
+					TheContent = ""
+					while j <= TheContentEnd:
+						TheContent = TheContent + ContentList[j]
+						if j != TheContentEnd:
+							TheContent = TheContent = '\n'
+					TheInfo = {}
+					TheInfo["Start"] = TheStartFrame
+					TheInfo["End"] = TheEndFrame
+					TheInfo["Content"] = TheContent
+					self.SubtitleList.append(TheInfo)
+					TheTimePlace = Constants.UNDEFINED_NUMBER
+					TheContentStart = Constants.UNDEFINED_NUMBER
+					TheContentEnd = Constants.UNDEFINED_NUMBER
+		#print(self.SubtitleList)
+
 
 if __name__ == "__main__":
 	Root = Tk()
-	TheClient = PlayClient(Root, Constants.SERVER_ADDR, Constants.SERVER_CONTROL_PORT, "test.mp4", 0, 114514)
+	TheClient = PlayClient(Root, Constants.SERVER_ADDR, Constants.SERVER_CONTROL_PORT, "奥利给.flv", 0, 114514)
 	Root.mainloop()
