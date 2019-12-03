@@ -813,5 +813,5 @@ class PlayClient:
 
 if __name__ == "__main__":
 	Root = Tk()
-	TheClient = PlayClient(Root, Constants.SERVER_ADDR, Constants.SERVER_CONTROL_PORT, "奥利给.flv", 0, 114514)
+	TheClient = PlayClient(Root, Constants.SERVER_ADDR, Constants.RTP_SERVER_CONTROL_PORT, "奥利给.flv", 0, 114514)
 	Root.mainloop()

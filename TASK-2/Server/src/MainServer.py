@@ -2,23 +2,23 @@ import socket
 import threading
 
 from Constants import Constants
-from ServerManager import ServerManager
+from MainServerManager import MainServerManager
 
 
-class Server:
+class MainServer:
     '''
-    RTP主服务器类
+    主服务器类
     '''
     def __init__(self):
         self.ServerIP = ""
-        self.ServerControlPort = Constants.RTP_SERVER_CONTROL_PORT
+        self.ServerControlPort = Constants.MAIN_SERVER_CONTROL_PORT
         self.InitSocket()
         self.ListenLinks()
 
 
     def InitSocket(self):
         '''
-        描述：初始化RTP数据连接和RTSP控制连接
+        描述：初始化数据连接和控制连接
         参数：无
         返回：无
         '''
@@ -50,10 +50,10 @@ class Server:
         返回：无
         '''
         print("New Client has linked in, the client is ", NewAddress)
-        TheServerManager = ServerManager(NewSocket, NewAddress)
+        TheServerManager = MainServerManager(NewSocket, NewAddress)
         print("A Client has disconnected, the client is ", NewAddress)
         return
 
 if __name__ == "__main__":
-	TheServer = Server()
+	TheServer = MainServer()
 

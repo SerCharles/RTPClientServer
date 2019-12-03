@@ -10,7 +10,7 @@ from RtpPacket import RtpPacket
 
 class ServerManager:
     '''
-    用于管理单一客户端的服务器类，每个类对应一个数据连接+控制连接，也对应Server中一个线程和一个服务器
+    RTP用于管理单一客户端的服务器类，每个类对应一个数据连接+控制连接，也对应Server中一个线程和一个服务器
     '''
     def __init__(self, ControlSocket, ClientAddress):
         '''
@@ -32,7 +32,7 @@ class ServerManager:
         self.ControlSocket = ControlSocket
         self.ClientIP = ClientAddress[0]
         self.ClientControlPort = ClientAddress[1]
-        self.ServerControlPort = Constants.SERVER_CONTROL_PORT
+        self.ServerControlPort = Constants.RTP_SERVER_CONTROL_PORT
         self.DataSocket = None
         self.ServerDataPort = Constants.UNDEFINED_NUMBER
         self.ClientDataPort = Constants.UNDEFINED_NUMBER
@@ -41,6 +41,7 @@ class ServerManager:
         self.Session = Constants.UNDEFINED_NUMBER
 
         #文件信息
+        self.ServerDir = "ServerDir"
         self.CurrentFileName = ""
         self.BufferImageDir = "BufferImage"
         self.BufferImageBack = ".jpg"
@@ -145,7 +146,7 @@ class ServerManager:
                 TheFileName = TheCommand["FileName"]
             if Success:
                 if TheCommand["Type"] == "SETUP":
-                    Success, TheMessage = self.HandleSetup(TheFileName, TheCommand["Port"])
+                    Success, TheMessage = self.HandleSetup(self.GetRealFileName(TheFileName), TheCommand["Port"])
                 elif TheCommand["Type"] == "PLAY":
                     Success, TheMessage = self.HandlePlay()
                 elif TheCommand["Type"] == "PAUSE":
@@ -232,6 +233,15 @@ class ServerManager:
         '''
         ThePort = random.randint(10001, 65535)
         return ThePort
+
+    def GetRealFileName(self, TheFileName):
+        '''
+        描述：获取服务器的实际文件名
+        参数：请求文件名
+        返回：实际文件名
+        '''
+        RealFileName = self.ServerDir + '/' + TheFileName
+        return RealFileName
 
     def PrepareBufferPlace(self):
         '''
