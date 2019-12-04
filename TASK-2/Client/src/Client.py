@@ -1,5 +1,4 @@
-
-
+from tkinter import *
 import socket
 import sys
 import os
@@ -7,6 +6,7 @@ import random
 from math import *
 import time
 import threading
+import re
 from PyQt5.QtWidgets import QApplication, QMainWindow, QInputDialog, QFileDialog, QPushButton, \
 QLineEdit, QTableWidgetItem, QMessageBox, QProgressBar, QMenu, QAbstractItemView, QListView, QListWidget, QListWidgetItem
 from PyQt5.QtCore import QObject, Qt, QThread, pyqtSignal, QSize
@@ -14,7 +14,7 @@ from PyQt5.uic import loadUi
 from PyQt5.QtGui import QIcon
 
 from Constants import Constants
-
+from PlayClient import PlayClient
 
 
 class MainClient(QObject):
@@ -71,38 +71,9 @@ class MainClient(QObject):
         self.MainWindow = loadUi("mainwindow.ui")
         self.ConnectToServer()
         self.OpenDataPort()
-        self.SetupLink()
-        
-
-        
+        self.SetupLink()    
         self.ConnectSignalAndSlot()
     
-    def ConnectSignalAndSlot(self):
-        '''
-        描述：连接各种信号和槽
-        参数：无
-        返回：无
-        '''
-        self.InitializeFinished.connect(self.InitializeGUI)
-        '''
-        self.MainWindow.FileListTable.setSelectionBehavior(QAbstractItemView.SelectRows) ###设置一次选中一行
-        self.MainWindow.FileListTable.setEditTriggers(QAbstractItemView.NoEditTriggers) ###设置表格禁止编辑
-        self.MainWindow.FileListTable.setContextMenuPolicy(Qt.CustomContextMenu)######允许右键产生子菜单
-        self.MainWindow.FileListTable.customContextMenuRequested.connect(self.GenerateMenu)   ####右键菜单
-        
-        self.LoginWindow.LoginButton.clicked.connect(self.InitAndLogin)
-        self.MainWindow.RefreshButton.clicked.connect(self.RefreshPath)
-        self.MainWindow.RefreshButton.clicked.connect(self.GetFileList)
-        self.MainWindow.QuitButton.clicked.connect(self.Disconnect)
-        self.MainWindow.GoToButton.clicked.connect(self.ChangeDir)
-        self.MainWindow.NewButton.clicked.connect(self.MakeDir)
-        self.MainWindow.BackButton.clicked.connect(self.GoBack)
-        self.MainWindow.RootButton.clicked.connect(self.ChangeToRoot)
-        self.MainWindow.UploadButton.clicked.connect(self.ShowUploadDialog)
-
-        self.MainWindow.DownloadTable.setEditTriggers(QAbstractItemView.NoEditTriggers)
-        self.MainWindow.UploadTable.setEditTriggers(QAbstractItemView.NoEditTriggers)
-        '''
 
 	#网络连接相关操作，包括数据端口连接服务器，控制端口开启等
     def ConnectToServer(self):
@@ -346,6 +317,7 @@ class MainClient(QObject):
                 TheItem["TotalFrameNumber"] = int(TheFileList[i])
                 TheItem["CurrentFrameNumber"] = 0
             else:
+                TheItem["FramePerSecond"] = int(TheFileList[i])
                 TheItem["TotalTime"] = self.GetPlayTime(TheItem["TotalFrameNumber"], int(TheFileList[i]))
                 TheItem["CurrentTime"] = self.GetPlayTime(0, int(TheFileList[i]))
                 self.PlayList.append(TheItem)
@@ -419,9 +391,19 @@ class MainClient(QObject):
         return TheFileNameDownload
     
     def GetIconFileName(self, TheFileName):
+        '''
+        描述：缩略图片的文件名
+        参数：无
+        返回：文件名
+        '''
         return self.SaveDir + '/' + str(self.Session) + '/' + TheFileName[0:-4] + self.PictureBack
 
     def GetSubtitleFileName(self, TheFileName):
+        '''
+        描述：字幕文件的文件名
+        参数：无
+        返回：文件名
+        '''
         return self.SaveDir + '/' + str(self.Session) + '/' + TheFileName[0:-4] + self.SubtitleBack
 
     def GetPlayTime(self, TheFrameNumber, TheFramePerSecond):
@@ -438,16 +420,36 @@ class MainClient(QObject):
         return TheString
 
     #GUI相关函数
+    def ConnectSignalAndSlot(self):
+        '''
+        描述：连接各种信号和槽
+        参数：无
+        返回：无
+        '''
+        self.InitializeFinished.connect(self.InitializeGUI)
+        self.MainWindow.VideoList.itemClicked.connect(self.ShowDetail)
+        self.MainWindow.SearchButton.clicked.connect(self.SearchInPlayList)
+        self.MainWindow.VideoList.setContextMenuPolicy(Qt.CustomContextMenu)######允许右键产生子菜单
+        self.MainWindow.VideoList.customContextMenuRequested.connect(self.GenerateMenu)   ####右键菜单
+
     def InitializeGUI(self):
+        '''
+        描述：初始化gui，打开mainwindow和加载播放列表
+        参数：无
+        返回：无
+        '''
         #self.MainWindow.show()
         self.InitializePlayList()
         self.MainWindow.show()
 
-
-
     def InitializePlayList(self):
+        '''
+        描述：加载播放列表
+        参数：无
+        返回：无
+        '''
         self.MainWindow.VideoList.setViewMode(QListView.IconMode)
-        self.MainWindow.VideoList.setIconSize(QSize(200,200))
+        self.MainWindow.VideoList.setIconSize(QSize(150, 150))
         self.MainWindow.VideoList.setSpacing(12)
         for item in self.PlayList:
             NewItem = QListWidgetItem()
@@ -456,9 +458,107 @@ class MainClient(QObject):
             NewItem.setText(item["FileName"])
             self.MainWindow.VideoList.addItem(NewItem)
 
-class ListWidget(QListWidget):
-    def clicked(self, item):
-        QMessageBox.information(self, "ListWidget", "你选择了: " + item.text())
+    def SearchInPlayList(self):
+        '''
+        描述：处理播放列表搜索
+        参数：无
+        返回：无
+        '''
+        self.MainWindow.VideoList.clear()
+        TheText = self.MainWindow.SearchText.text()
+        if TheText == '':
+            for item in self.PlayList:
+                NewItem = QListWidgetItem()
+                TheIconName = self.GetIconFileName(item["FileName"])
+                NewItem.setIcon(QIcon(TheIconName))
+                NewItem.setText(item["FileName"])
+                self.MainWindow.VideoList.addItem(NewItem)
+        else:
+            for item in self.PlayList:
+                if re.search(TheText, item["FileName"]):
+                    NewItem = QListWidgetItem()
+                    TheIconName = self.GetIconFileName(item["FileName"])
+                    NewItem.setIcon(QIcon(TheIconName))
+                    NewItem.setText(item["FileName"])
+                    self.MainWindow.VideoList.addItem(NewItem)
+
+    def ShowDetail(self, item):
+        '''
+        描述：点击某一项后，下面框显示细节
+        参数：无
+        返回：无
+        '''
+        TheItem = None
+        for one in self.PlayList:
+            if item.text() == one["FileName"]:
+                TheItem = one
+                break
+        if TheItem["WhetherHasSubtitle"] == True:
+            TheSubtitle = "是"
+        else:
+            TheSubtitle = "否"
+        TheShowDetail = "视频名称： " + TheItem["FileName"] + '\n'\
+        + "总时长： " + TheItem["TotalTime"] + '\n'\
+        + "当前播放时长： " + TheItem["CurrentTime"] + '\n'\
+        + "是否有字幕： " + TheSubtitle
+        self.MainWindow.ShowText.setPlainText(TheShowDetail)
+
+    def GenerateMenu(self, Position):
+        '''
+        描述：选择元素后右键生成菜单
+        参数：位置
+        返回：无
+        '''
+        item = self.MainWindow.VideoList.itemAt(Position) 
+        try:
+            DirName = item.text()
+        except:
+            return
+        TheItem = None
+        for one in self.PlayList:
+            if DirName == one["FileName"]:
+                TheItem = one
+                break
+
+        Menu = QMenu()
+        Item0 = Menu.addAction("从头开始播放")
+        Item1 = Menu.addAction("继续播放")
+        Action = Menu.exec_(self.MainWindow.VideoList.mapToGlobal(Position))
+        if Action == Item0:
+            self.PlayVideo(TheItem, 0)
+            #threading.Thread(target = self.PlayVideo, \
+            #args = (TheItem, 0)).start()
+        elif Action == Item1:
+            self.PlayVideo(TheItem, TheItem["CurrentFrameNumber"])
+            #threading.Thread(target = self.PlayVideo, \
+            #args = (TheItem, TheItem["CurrentFrameNumber"])).start()
+        else:
+            donothing = True
+                
+
+    def PlayVideo(self, PlayListItem, StartPlace):
+        '''
+        描述：控制视频播放
+        参数：位置
+        返回：无
+        '''
+        print("Started playing a video of ", PlayListItem["FileName"])
+        time.sleep(0.1)
+        self.MainWindow.setVisible(False)
+        Root = None
+        Root = Tk()
+        TheClient = PlayClient(Root, Constants.SERVER_ADDR, Constants.RTP_SERVER_CONTROL_PORT,\
+        PlayListItem["FileName"], StartPlace, self.Session, PlayListItem["WhetherHasSubtitle"])
+        Root.mainloop()
+        try:
+            Root.destroy()
+        except:
+            Root = None
+        PlayListItem["CurrentFrameNumber"] = Constants.CurrentFrameBuffer
+        PlayListItem["CurrentTime"] = self.GetPlayTime(PlayListItem["CurrentFrameNumber"], PlayListItem["FramePerSecond"])
+        self.MainWindow.setVisible(True)
+        print(Constants.CurrentFrameBuffer)
+        print("Stop playing a video of ", PlayListItem["FileName"])
 
 
 if __name__ == '__main__':
@@ -467,35 +567,3 @@ if __name__ == '__main__':
     sys.exit(app.exec_())
 
 
-
-
-
-    '''app = QApplication(sys.argv)
-    #实例化对象，目的只是单纯的使用里面的槽函数............
-    listWidget = ListWidget()
-    listWidget.setViewMode(QListView.IconMode)
-    listWidget.setIconSize(QSize(100,100))
-    listWidget.setSpacing(12)
-    item1 = QListWidgetItem()
-    item1.setIcon(QIcon('奥利给.jpg'))
-    item1.setText("马克思")
-    item2 = QListWidgetItem()
-    item2.setIcon(QIcon('奥利给.jpg'))
-    item2.setText("奥利给")
-    item3 = QListWidgetItem()
-    item3.setIcon(QIcon('奥利给.jpg'))
-    item3.setText("影流之主")
-
-    #设置初始大小，增加条目，设置标题
-    listWidget.resize(300, 120)
-    listWidget.addItem(item1)
-    listWidget.addItem(item2)
-    listWidget.addItem(item3)
-    listWidget.setWindowTitle('QListwidget 例子')
-
-    #单击触发绑定的槽函数
-    listWidget.itemClicked.connect(listWidget.clicked)
-
-
-    listWidget.show()
-    sys.exit(app.exec_())'''

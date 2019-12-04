@@ -59,3 +59,6 @@ class Constants:
     #全屏窗口大小
     WINDOW_WIDTH = 1855
     WINDOW_HEIGHT = 1056
+
+    CurrentFrameBuffer = 0
+    

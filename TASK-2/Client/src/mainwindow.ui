@@ -6,8 +6,8 @@
    <rect>
     <x>0</x>
     <y>0</y>
-    <width>639</width>
-    <height>740</height>
+    <width>627</width>
+    <height>696</height>
    </rect>
   </property>
   <property name="windowTitle">
@@ -73,26 +73,13 @@
      <string>Search</string>
     </property>
    </widget>
-   <widget class="QPushButton" name="DisconnectButton">
-    <property name="geometry">
-     <rect>
-      <x>270</x>
-      <y>640</y>
-      <width>81</width>
-      <height>31</height>
-     </rect>
-    </property>
-    <property name="text">
-     <string>Disconnect</string>
-    </property>
-   </widget>
   </widget>
   <widget class="QMenuBar" name="menuBar">
    <property name="geometry">
     <rect>
      <x>0</x>
      <y>0</y>
-     <width>639</width>
+     <width>627</width>
      <height>31</height>
     </rect>
    </property>

@@ -19,7 +19,7 @@ class PlayClient:
 	'''
 	
 	#初始化系列函数
-	def __init__(self, master, TheServerIP, TheServerPort, TheFileName, TheStartPlace, TheSession):
+	def __init__(self, master, TheServerIP, TheServerPort, TheFileName, TheStartPlace, TheSession, WhetherHasSubtitle):
 		'''
         描述：初始化RTP客户端
         参数：父控件，服务器的IP和端口，文件名,开始播放的位置
@@ -56,6 +56,7 @@ class PlayClient:
 
 		#文件相关，包括要播放的视频文件名，缓存文件和接收文件的文件格式和目录名
 		self.FileName = TheFileName
+		self.SubtitleDir = "Info"
 		self.CacheDirPicture = "CachePicture"
 		self.CacheFront = "Cache_"
 		self.PictureBack = ".jpg"
@@ -82,7 +83,7 @@ class PlayClient:
 		self.WhetherFullScreen = False
 
 		#字幕用数据
-		self.WhetherHasSubtitle = True
+		self.WhetherHasSubtitle = WhetherHasSubtitle
 		self.SubtitleList = []
 		#每个元素：起始帧，结束帧，字幕内容
 
@@ -226,7 +227,8 @@ class PlayClient:
         参数：无
         返回：无
 		'''	
-		self.SendControlRequest("TEARDOWN")		
+		self.SendControlRequest("TEARDOWN")	
+		Constants.CurrentFrameBuffer = self.PicturePlay	
 		self.master.destroy() 
 		
 		'''try:
@@ -572,7 +574,8 @@ class PlayClient:
 		self.Movie.image = ThePhotoShow
 
 		#字幕显示
-		self.Subtitle["text"] = self.UpdateSubtitle()
+		if self.WhetherHasSubtitle:
+			self.Subtitle["text"] = self.UpdateSubtitle()
 		#self.Subtitle.configure(self.UpdateSubtitle())
 
 	def UpdateSubtitle(self):
@@ -665,7 +668,7 @@ class PlayClient:
 		参数：无
 		返回：文件名
         '''
-		return self.FileName[:-4] + self.SubtitleBack
+		return self.SubtitleDir + '/' + str(self.Session) + '/' + self.FileName[:-4] + self.SubtitleBack
 
 	def SetVideoParameter(self, TheReply):
 		'''
@@ -810,8 +813,9 @@ class PlayClient:
 					TheContentEnd = Constants.UNDEFINED_NUMBER
 		#print(self.SubtitleList)
 
-
+'''
 if __name__ == "__main__":
 	Root = Tk()
 	TheClient = PlayClient(Root, Constants.SERVER_ADDR, Constants.RTP_SERVER_CONTROL_PORT, "奥利给.flv", 0, 114514)
 	Root.mainloop()
+'''
