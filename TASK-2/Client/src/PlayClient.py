@@ -112,6 +112,9 @@ class PlayClient:
         参数：无
         返回：无
 		'''
+		self.PictureWidthFull = self.master.winfo_screenwidth()
+		self.PictureHeightFull = self.master.winfo_screenheight()
+
 		self.master.bind("<Configure>", self.ChangeScreen)
 		#图片显示
 		self.Movie = Label(self.master)
@@ -555,7 +558,7 @@ class PlayClient:
 
 			#平衡opencv运算带来的延迟问题
 			if self.WhetherFullScreen == True:
-				time.sleep(1 / self.PicturePerSecond / self.CurrentPlaySpeed/ 1.5)
+				time.sleep(1 / self.PicturePerSecond / self.CurrentPlaySpeed/ 1.7)
 			else:
 				time.sleep(1 / self.PicturePerSecond / self.CurrentPlaySpeed)
 
@@ -568,7 +571,7 @@ class PlayClient:
 		'''	
 		ThePhoto = Image.open(TheImageFileName)
 		if self.WhetherFullScreen == True:
-			ThePhoto = ThePhoto.resize((self.PictureWidthFull, self.PictureHeightFull))
+			ThePhoto = ThePhoto.resize((round(self.PictureWidthFull * 0.97), round(self.PictureHeightFull * 0.97)))
 		ThePhotoShow = ImageTk.PhotoImage(ThePhoto)
 		self.Movie.configure(image = ThePhotoShow) 
 		self.Movie.image = ThePhotoShow
@@ -622,17 +625,17 @@ class PlayClient:
         返回：无
 		'''	
 		if self.WhetherFullScreen != True and \
-		event.width == self.PictureWidthFull and event.height == self.PictureHeightFull:
+		event.width >= (self.PictureWidthFull * 0.95) and event.height >= (self.PictureHeightFull * 0.95):
 			#进入全屏
 			print("in")
 			self.WhetherFullScreen = True
-			self.PictureWidth = self.PictureWidthFull
-			self.PictureHeight = self.PictureHeightFull
+			self.PictureWidth = round(self.PictureWidthFull * 0.97)
+			self.PictureHeight = round(self.PictureHeightFull * 0.97)
 			self.SetWidgetPlace()
 			time.sleep(0.01)
 			return
 		if self.WhetherFullScreen == True and \
-		(event.width < self.PictureWidthFull or event.height < self.PictureHeightFull):
+		(event.width < (self.PictureWidthFull * 0.95) or event.height < (self.PictureHeightFull * 0.95)):
 			#退出全屏
 			print("out")
 			self.WhetherFullScreen = False
@@ -811,11 +814,3 @@ class PlayClient:
 					TheTimePlace = Constants.UNDEFINED_NUMBER
 					TheContentStart = Constants.UNDEFINED_NUMBER
 					TheContentEnd = Constants.UNDEFINED_NUMBER
-		#print(self.SubtitleList)
-
-'''
-if __name__ == "__main__":
-	Root = Tk()
-	TheClient = PlayClient(Root, Constants.SERVER_ADDR, Constants.RTP_SERVER_CONTROL_PORT, "奥利给.flv", 0, 114514)
-	Root.mainloop()
-'''

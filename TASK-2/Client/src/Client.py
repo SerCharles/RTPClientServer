@@ -32,7 +32,7 @@ class MainClient(QObject):
         super(QObject,self).__init__()
 
         #ip，端口等
-        self.IP = "127.0.0.1"
+        self.IP = ""
         self.ClientControlPort = Constants.UNDEFINED_NUMBER
         self.ClientDataPort = self.GenerateRandomPort()
         self.ServerIP = Constants.SERVER_ADDR
@@ -68,14 +68,24 @@ class MainClient(QObject):
         self.Session = Constants.UNDEFINED_NUMBER
 
         #初始化ui
+        self.LoginWindow = loadUi("LoginWindow.ui")
         self.MainWindow = loadUi("mainwindow.ui")
-        self.ConnectToServer()
-        self.OpenDataPort()
-        self.SetupLink()    
+        self.LoginWindow.show()
         self.ConnectSignalAndSlot()
     
 
 	#网络连接相关操作，包括数据端口连接服务器，控制端口开启等
+    def Initialize(self):
+        '''
+        描述：初始化函数，负责在登录窗口连接服务器，下载一系列东西，最后进入主界面
+        参数：无
+        返回：无
+        '''	
+        self.ServerIP = self.LoginWindow.IPText.toPlainText() 
+        self.ConnectToServer()
+        self.OpenDataPort()
+        self.SetupLink()    
+
     def ConnectToServer(self):
         '''
         描述：控制连接服务器
@@ -83,10 +93,13 @@ class MainClient(QObject):
         返回：无
         '''	
         self.ControlSocket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.ControlSocket.settimeout(2)
         try:
             self.ControlSocket.connect((self.ServerIP, self.ServerControlPort))
         except:
-            QMessageBox.warning(self.MainWindow,'Connection Fail',"Unable to connect to the Server",QMessageBox.Yes)	
+            QMessageBox.warning(self.MainWindow,'Connection Fail',"Unable to connect to the Server",QMessageBox.Yes)
+            self.LoginWindow.close()
+            self.MainWindow.close()	
 
 
     def OpenDataPort(self):
@@ -426,6 +439,7 @@ class MainClient(QObject):
         参数：无
         返回：无
         '''
+        self.LoginWindow.LoginButton.clicked.connect(self.Initialize)
         self.InitializeFinished.connect(self.InitializeGUI)
         self.MainWindow.VideoList.itemClicked.connect(self.ShowDetail)
         self.MainWindow.SearchButton.clicked.connect(self.SearchInPlayList)
@@ -441,6 +455,7 @@ class MainClient(QObject):
         #self.MainWindow.show()
         self.InitializePlayList()
         self.MainWindow.show()
+        self.LoginWindow.close()
 
     def InitializePlayList(self):
         '''
@@ -547,7 +562,7 @@ class MainClient(QObject):
         self.MainWindow.setVisible(False)
         Root = None
         Root = Tk()
-        TheClient = PlayClient(Root, Constants.SERVER_ADDR, Constants.RTP_SERVER_CONTROL_PORT,\
+        TheClient = PlayClient(Root, self.ServerIP, Constants.RTP_SERVER_CONTROL_PORT,\
         PlayListItem["FileName"], StartPlace, self.Session, PlayListItem["WhetherHasSubtitle"])
         Root.mainloop()
         try:
